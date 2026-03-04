@@ -1,0 +1,107 @@
+{
+  "projectType": "saas",
+  "projectName": "HubSpot Form Builder",
+  "projectDescription": "Visual drag-and-drop builder for creating multi-step forms in HubSpot CMS with real-time preview and module export capabilities.",
+  "theme": "palm",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "requirements"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/visual-editor",
+              "features/field-palette",
+              "features/preview",
+              "features/module-export"
+            ]
+          },
+          {
+            "group": "HubSpot Integration",
+            "pages": [
+              "integration/oauth-setup",
+              "integration/connecting",
+              "integration/hubspot-api"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/building-forms",
+              "guides/drag-and-drop",
+              "guides/exporting-modules",
+              "guides/deployment"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Architecture",
+        "groups": [
+          {
+            "group": "Technical Overview",
+            "pages": [
+              "architecture/overview",
+              "architecture/frontend",
+              "architecture/backend",
+              "architecture/module-generators"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/components",
+              "reference/hooks",
+              "reference/api-endpoints"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Help",
+        "groups": [
+          {
+            "group": "Support",
+            "pages": [
+              "troubleshooting",
+              "faq"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Visual drag-and-drop form builder",
+    "Field palette with auto-detection",
+    "Real-time multi-step preview",
+    "OAuth 2.0 HubSpot integration",
+    "HubSpot CMS module generation and export",
+    "Responsive design for all devices",
+    "Cloudflare tunnel support for testing"
+  ],
+  "publicApiSurface": [
+    "POST /oauth/hubspot",
+    "GET /oauth/hubspot/callback",
+    "GET /api/status",
+    "GET /api/forms",
+    "GET /api/forms/:formId/schema",
+    "generateModule(schema, layout)",
+    "downloadModule(blob, moduleName)",
+    "useHubSpotForms hook",
+    "useLayoutStore hook",
+    "useLayoutDnd hook"
+  ]
+}
