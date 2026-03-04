@@ -1,0 +1,125 @@
+---
+title: Introduction
+description: Learn about HubSpot Form Builder, a visual drag-and-drop tool for creating multi-step forms for HubSpot CMS.
+---
+
+# Welcome to HubSpot Form Builder
+
+HubSpot Form Builder is a visual constructor for creating multi-step forms for HubSpot CMS with drag-and-drop functionality. Build complex, user-friendly forms without writing code, then export them as ready-to-use HubSpot CMS modules.
+
+## What is HubSpot Form Builder?
+
+HubSpot Form Builder bridges the gap between HubSpot's powerful Forms API and custom CMS implementations. Instead of manually coding multi-step form layouts, you can visually design them using an intuitive interface and export production-ready modules.
+
+The application consists of:
+- **Visual drag-and-drop editor** for designing form layouts
+- **Real-time preview panel** to test your multi-step form flow
+- **Automatic field detection** from existing HubSpot forms
+- **Secure OAuth 2.0 integration** with your HubSpot account
+- **CMS module generator** that creates downloadable, ready-to-deploy modules
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Visual Drag & Drop Editor" icon="hand-pointer">
+    Drag fields from the palette and drop them onto the canvas to create custom layouts. Rearrange fields, organize them into rows, and build multi-step flows visually.
+  </Card>
+  
+  <Card title="Automatic Field Detection" icon="wand-magic-sparkles">
+    Connect to HubSpot and select any form. All fields are automatically loaded into the palette, ready to be arranged in your custom layout.
+  </Card>
+  
+  <Card title="Real-Time Preview" icon="eye">
+    See exactly how your multi-step form will look and behave. Test navigation, required field validation, and the complete user flow before exporting.
+  </Card>
+  
+  <Card title="Secure OAuth Integration" icon="lock">
+    Connect safely to your HubSpot account using OAuth 2.0. No need to manage API keys manually - authentication is handled securely.
+  </Card>
+  
+  <Card title="CMS Module Export" icon="download">
+    Generate and download complete HubSpot CMS modules with a single click. Modules include all necessary HTML, CSS, JavaScript, and configuration files.
+  </Card>
+  
+  <Card title="Responsive Design" icon="mobile">
+    Forms are built to work seamlessly across desktop, tablet, and mobile devices. Test your forms on any device using Cloudflare tunnels.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+HubSpot Form Builder follows a simple workflow:
+
+<Steps>
+  <Step title="Connect to HubSpot">
+    Authenticate with your HubSpot account using OAuth 2.0. The application requests access to Forms API, CMS Content, and uploaded files.
+  </Step>
+  
+  <Step title="Select a Form">
+    Choose an existing HubSpot form from the dropdown. All form fields are automatically loaded into the field palette on the left sidebar.
+  </Step>
+  
+  <Step title="Design Your Layout">
+    Drag fields from the palette onto the canvas. Organize them into rows (up to 3 fields per row), create multiple steps, and customize the flow.
+  </Step>
+  
+  <Step title="Preview Your Form">
+    Switch to preview mode to test the complete multi-step experience. Verify navigation, test required field validation, and ensure the flow works as expected.
+  </Step>
+  
+  <Step title="Export the Module">
+    Click "Generate Module" to create a complete HubSpot CMS module. Download the ZIP file and upload it to HubSpot Design Manager.
+  </Step>
+</Steps>
+
+## Who Should Use This?
+
+### HubSpot Developers
+Save hours of development time by visually designing form layouts instead of hand-coding HTML and JavaScript. Export production-ready modules with proper structure and validation.
+
+### CMS Users & Marketers
+Create custom multi-step forms without technical knowledge. Design the user experience you want, then hand off the generated module to your development team.
+
+### Agencies & Consultants
+Rapidly prototype and deliver custom form solutions for clients. Iterate on designs quickly and export professional modules.
+
+## Technology Stack
+
+HubSpot Form Builder is built with modern web technologies:
+
+**Frontend:**
+- React 18 with TypeScript
+- Vite for fast development
+- @dnd-kit for drag-and-drop functionality
+- Zustand for state management
+
+**Backend:**
+- Node.js with Express
+- TypeScript throughout
+- HubSpot Forms API integration
+- OAuth 2.0 authentication
+
+**Development Tools:**
+- ESLint and Prettier for code quality
+- Cloudflare Tunnels for cross-device testing
+- NPM workspaces for monorepo structure
+
+## Open Source
+
+HubSpot Form Builder is open source under the MIT License. Contributions, feature requests, and bug reports are welcome on GitHub.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Get HubSpot Form Builder running locally in under 10 minutes
+  </Card>
+  
+  <Card title="System Requirements" icon="list-check" href="/requirements">
+    Check the prerequisites and requirements before installing
+  </Card>
+</CardGroup>
+
+<Note>
+  Need help? Check the troubleshooting section in the quickstart guide or open an issue on GitHub.
+</Note>

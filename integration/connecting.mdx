@@ -1,0 +1,417 @@
+---
+title: Connecting to HubSpot
+description: Connect the Form Builder to your HubSpot account and manage your session
+---
+
+## Overview
+
+Once you've configured OAuth, you can connect the Form Builder to your HubSpot account. This guide covers the connection flow, session management, and troubleshooting.
+
+## Initial Connection
+
+<Steps>
+  <Step title="Start the Application">
+    Ensure both the frontend and backend servers are running:
+
+    ```bash
+    # Terminal 1 - Backend
+    cd main/server
+    npm run dev
+
+    # Terminal 2 - Frontend
+    cd main/frontend
+    npm run dev
+    ```
+
+    Open http://localhost:5173 in your browser.
+  </Step>
+
+  <Step title="Click Connect to HubSpot">
+    On the main interface, click the **"Connect to HubSpot"** button.
+
+    This initiates the OAuth flow by redirecting to:
+    ```
+    GET /oauth/hubspot/install
+    ```
+  </Step>
+
+  <Step title="Authorize the Application">
+    You'll be redirected to HubSpot's authorization page where you can:
+    
+    - Review the requested permissions (scopes)
+    - Select which HubSpot account to connect (if you have multiple)
+    - Authorize or deny access
+
+    <Note>
+      The app requests access to: forms, content, and forms-uploaded-files.
+    </Note>
+  </Step>
+
+  <Step title="Automatic Redirect">
+    After authorizing, HubSpot redirects back to your application:
+    
+    ```
+    http://localhost:3001/oauth/hubspot/callback?code=xxx&state=xxx
+    ```
+
+    The backend automatically:
+    - Validates the state parameter
+    - Exchanges the authorization code for tokens
+    - Stores tokens in memory
+    - Redirects you back to the frontend
+  </Step>
+
+  <Step title="Connection Confirmed">
+    You'll be redirected to the frontend with connection confirmation:
+    
+    ```
+    http://localhost:5173/?connected=true&portalId=12345678
+    ```
+
+    The interface will update to show:
+    - Your connected portal ID
+    - Form selection dropdown
+    - Logout button
+  </Step>
+</Steps>
+
+## Connection Flow Details
+
+### Authorization Endpoint
+
+The connection starts at the `/oauth/hubspot/install` endpoint:
+
+```typescript
+// From oauth.ts:46-51
+router.get('/hubspot/install', (_req: Request, res: Response) => {
+  const state = crypto.randomBytes(24).toString('hex');
+  stateStore.set(state, Date.now());
+  const url = buildAuthorizeUrl(state);
+  res.redirect(url);
+});
+```
+
+**What happens:**
+1. Generates a random state token (24 bytes, hex-encoded)
+2. Stores state with current timestamp
+3. Builds authorization URL with client ID, scopes, and state
+4. Redirects user to HubSpot
+
+### Authorization URL Structure
+
+```typescript
+// From oauth.ts:33-44
+function buildAuthorizeUrl(state: string) {
+  const clientId = getEnv('HUBSPOT_CLIENT_ID');
+  const redirectUri = getEnv('HUBSPOT_REDIRECT_URI');
+  const scope = getEnv('HUBSPOT_SCOPES');
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope,
+    state,
+  });
+  return `${HUBSPOT_AUTH_URL}?${params.toString()}`;
+}
+```
+
+Example URL:
+```
+https://app.hubspot.com/oauth/authorize?
+  client_id=abc123-def456
+  &redirect_uri=http://localhost:3001/oauth/hubspot/callback
+  &scope=forms%20content%20forms-uploaded-files
+  &state=a1b2c3d4e5f6...
+```
+
+### Callback Handler
+
+After authorization, HubSpot calls back with an authorization code:
+
+```typescript
+// From oauth.ts:53-59
+router.get('/hubspot/callback', async (req: Request, res: Response) => {
+  const code = String(req.query.code || '');
+  const state = String(req.query.state || '');
+
+  if (!code || !state || !stateStore.has(state)) {
+    return res.status(400).json({ error: 'Invalid state or code' });
+  }
+
+  stateStore.delete(state);
+  // ... token exchange continues
+});
+```
+
+**Validation steps:**
+1. Extract code and state from query parameters
+2. Verify state exists in the state store
+3. Delete state (one-time use)
+4. Proceed with token exchange
+
+### Token Exchange
+
+The authorization code is exchanged for access tokens:
+
+```typescript
+// From oauth.ts:68-80
+const body = new URLSearchParams({
+  grant_type: 'authorization_code',
+  client_id: clientId,
+  client_secret: clientSecret,
+  redirect_uri: redirectUri,
+  code,
+});
+
+const tokenRes = await fetch(HUBSPOT_TOKEN_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body,
+});
+```
+
+**Request to:**
+```
+POST https://api.hubapi.com/oauth/v1/token
+```
+
+**Response includes:**
+- `access_token` - Used for API requests
+- `refresh_token` - Used to obtain new access tokens
+- `expires_in` - Token lifetime in seconds (typically 21600 = 6 hours)
+- `hub_id` - Your HubSpot portal ID
+
+### Token Storage
+
+```typescript
+// From oauth.ts:89-97
+const record: TokenRecord = {
+  accessToken: tokenJson.access_token,
+  refreshToken: tokenJson.refresh_token,
+  expiresAt: Date.now() + tokenJson.expires_in * 1000,
+  portalId: tokenJson.hub_id,
+};
+
+const key = String(record.portalId || 'default');
+tokenStore.set(key, record);
+```
+
+Tokens are stored in a Map indexed by portal ID, allowing support for multiple connected accounts.
+
+### Frontend Redirect
+
+After successful token exchange, the user is redirected back to the frontend:
+
+```typescript
+// From oauth.ts:99-107
+const frontendUrl = getOptionalEnv('FRONTEND_URL');
+if (frontendUrl) {
+  const url = new URL(frontendUrl);
+  url.searchParams.set('connected', 'true');
+  if (record.portalId) {
+    url.searchParams.set('portalId', String(record.portalId));
+  }
+  return res.redirect(url.toString());
+}
+```
+
+## Checking Connection Status
+
+The frontend can check if the user is connected:
+
+```typescript
+// From oauth.ts:118-121
+router.get('/hubspot/status', (_req: Request, res: Response) => {
+  const hasAny = tokenStore.size > 0;
+  res.json({ connected: hasAny });
+});
+```
+
+**Request:**
+```bash
+GET http://localhost:3001/oauth/hubspot/status
+```
+
+**Response:**
+```json
+{
+  "connected": true
+}
+```
+
+<Note>
+  This endpoint checks if ANY tokens exist, not if a specific user is connected. For multi-user applications, you'll need to implement user-specific session management.
+</Note>
+
+## Session Management
+
+### Accessing Tokens
+
+The forms API uses tokens from the store:
+
+```typescript
+// From forms.ts:44-47
+function getAccessToken() {
+  const token = Array.from(tokenStore.values())[0];
+  return token?.accessToken ?? null;
+}
+```
+
+This retrieves the first available token. For production, implement proper user-session mapping.
+
+### Token Expiration
+
+Tokens are stored with expiration time:
+
+```typescript
+expiresAt: Date.now() + tokenJson.expires_in * 1000
+```
+
+<Warning>
+  The current implementation does not automatically refresh tokens. You should implement token refresh logic before the `expiresAt` time.
+</Warning>
+
+### Logout/Disconnect
+
+Users can disconnect and clear their session:
+
+```typescript
+// From oauth.ts:123-126
+router.post('/hubspot/logout', (_req: Request, res: Response) => {
+  tokenStore.clear();
+  res.json({ success: true, message: 'Session closed successfully' });
+});
+```
+
+**Request:**
+```bash
+POST http://localhost:3001/oauth/hubspot/logout
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Session closed successfully"
+}
+```
+
+<Note>
+  This clears ALL tokens from memory. In a multi-user application, you should only clear the current user's tokens.
+</Note>
+
+## Using Cloudflare Tunnels
+
+For testing on mobile devices or sharing with others, use Cloudflare tunnels:
+
+```bash
+# Terminal 1 - Backend
+cd main/server
+npm run dev
+
+# Terminal 2 - Backend Tunnel
+cloudflared tunnel --url http://localhost:3001
+# Output: https://abc-123.trycloudflare.com
+
+# Terminal 3 - Frontend
+cd main/frontend
+npm run dev
+
+# Terminal 4 - Frontend Tunnel
+cloudflared tunnel --url http://localhost:5173
+# Output: https://xyz-789.trycloudflare.com
+```
+
+**Update environment variables:**
+
+```env
+# main/server/.env
+HUBSPOT_REDIRECT_URI=https://abc-123.trycloudflare.com/oauth/hubspot/callback
+FRONTEND_URL=https://xyz-789.trycloudflare.com/
+
+# main/frontend/.env
+VITE_API_BASE=https://abc-123.trycloudflare.com
+```
+
+**Update HubSpot OAuth app:**
+- Add the tunnel callback URL to your app's Redirect URIs
+
+## Troubleshooting
+
+### "Not allowed by CORS"
+
+**Cause:** Frontend URL doesn't match CORS configuration.
+
+**Solution:** The server allows localhost:5173 and *.trycloudflare.com:
+
+```typescript
+// From index.ts:12-16
+const allowedOrigins = ['http://localhost:5173'];
+
+if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.trycloudflare.com')) {
+  callback(null, true);
+}
+```
+
+Ensure your frontend URL matches one of these patterns.
+
+### "Invalid state or code"
+
+**Causes:**
+- State parameter expired or doesn't exist
+- Authorization code is missing
+- Trying to reuse an authorization code
+
+**Solutions:**
+- Clear browser cache and cookies
+- Start the OAuth flow again from the beginning
+- Verify `HUBSPOT_REDIRECT_URI` matches your HubSpot app configuration exactly
+
+### "Token exchange failed"
+
+**Causes:**
+- Incorrect Client ID or Client Secret
+- Mismatched redirect URI
+- Authorization code expired (60-second lifetime)
+
+**Solution:** Check the error details:
+
+```typescript
+// From oauth.ts:82-85
+if (!tokenRes.ok) {
+  const text = await tokenRes.text();
+  return res.status(500).json({ error: 'Token exchange failed', details: text });
+}
+```
+
+The `details` field contains HubSpot's error message.
+
+### Connection Lost After Server Restart
+
+**Cause:** Tokens are stored in memory and cleared on restart.
+
+**Solution:** For production, implement persistent storage:
+- Database (PostgreSQL, MySQL)
+- Redis
+- Session store with disk persistence
+
+### "Not connected to HubSpot" on API Calls
+
+**Cause:** Token store is empty.
+
+**Check:**
+```bash
+GET http://localhost:3001/oauth/hubspot/status
+```
+
+If `connected: false`, reconnect via the OAuth flow.
+
+## Next Steps
+
+<Card title="HubSpot API Reference" icon="code" href="/integration/hubspot-api">
+  Learn about the API endpoints used by the Form Builder
+</Card>
+
+<Card title="OAuth Setup" icon="shield" href="/integration/oauth-setup">
+  Review OAuth configuration and security best practices
+</Card>

@@ -1,0 +1,524 @@
+---
+title: 'Frontend Architecture'
+description: 'Deep dive into the React frontend: component structure, state management, drag-and-drop, and preview system'
+---
+
+## Overview
+
+The frontend is a React 18 single-page application (SPA) built with TypeScript and Vite. It provides a visual editor for customizing HubSpot forms with drag-and-drop functionality and live preview.
+
+## Tech Stack
+
+- **React 18.3** - UI library with concurrent features
+- **TypeScript 5.5** - Type-safe JavaScript
+- **Vite 5.4** - Fast build tool and dev server
+- **Zustand 4.5** - Lightweight state management
+- **@dnd-kit** - Modern drag-and-drop library
+- **JSZip 3.10** - ZIP file generation for module export
+
+## Component Architecture
+
+### Main Application Component
+
+**File**: [frontend/src/App.tsx](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/App.tsx)
+
+The root component orchestrates all major features:
+
+```tsx
+import { DndContext } from '@dnd-kit/core';
+import { Sidebar } from './components/Sidebar';
+import { LayoutBuilder } from './components/LayoutBuilder';
+import { PreviewPanel } from './components/PreviewPanel';
+import { useHubSpotForms } from './hooks/useHubSpotForms';
+import { useLayoutStore } from './hooks/useLayoutStore';
+import { useLayoutDnd } from './hooks/useLayoutDnd';
+
+export default function App() {
+  const { forms, schema, connected } = useHubSpotForms();
+  const layout = useLayoutStore((state) => state.layout);
+  const dnd = useLayoutDnd(schema);
+  
+  return (
+    <DndContext
+      sensors={dnd.sensors}
+      onDragStart={dnd.handleDragStart}
+      onDragEnd={dnd.handleDragEnd}
+    >
+      <Sidebar forms={forms} schema={schema} />
+      <main className="canvas">
+        <LayoutBuilder schema={schema} />
+        <PreviewPanel schema={schema} layout={layout} />
+      </main>
+    </DndContext>
+  );
+}
+```
+
+### Component Hierarchy
+
+```
+App.tsx
+├── Sidebar
+│   ├── HubSpotConnect
+│   ├── FormSelector
+│   └── DetectedFieldItem (draggable)
+│
+└── Canvas (main)
+    ├── Header
+    │   ├── View Tabs (Edit / Preview)
+    │   ├── Zoom Controls
+    │   └── Export Controls
+    │
+    ├── LayoutBuilder (Edit view)
+    │   └── SortableStep (multiple)
+    │       └── FieldItem (draggable)
+    │
+    └── PreviewPanel (Preview view)
+        └── Shadow DOM (isolated preview)
+```
+
+## Core Components
+
+### 1. HubSpotConnect
+
+**File**: [frontend/src/components/HubSpotConnect.tsx](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/components/HubSpotConnect.tsx)
+
+Handles OAuth connection to HubSpot.
+
+```tsx
+export function HubSpotConnect({ connected, onRefresh }: Props) {
+  const handleConnect = () => {
+    window.location.href = API_ENDPOINTS.oauthInstall;
+  };
+
+  const handleLogout = async () => {
+    const response = await fetch(API_ENDPOINTS.oauthLogout, {
+      method: 'POST',
+    });
+    if (response.ok) {
+      window.location.reload();
+    }
+  };
+
+  return (
+    <div className="hubspot-connect">
+      {connected ? (
+        <button onClick={handleLogout}>Logout</button>
+      ) : (
+        <button onClick={handleConnect}>Connect to HubSpot</button>
+      )}
+    </div>
+  );
+}
+```
+
+### 2. FormSelector
+
+**File**: [frontend/src/components/FormSelector.tsx](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/components/FormSelector.tsx)
+
+Dropdown for selecting a HubSpot form.
+
+```tsx
+export function FormSelector({ forms, selectedFormId, onSelectFormId }: Props) {
+  return (
+    <select value={selectedFormId} onChange={(e) => onSelectFormId(e.target.value)}>
+      <option value="">Choose a form</option>
+      {forms.map((form) => (
+        <option key={form.id} value={form.id}>
+          {form.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+```
+
+### 3. Sidebar
+
+**File**: [frontend/src/components/Sidebar.tsx](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/components/Sidebar.tsx)
+
+Left panel containing connection status, form selector, layout options, and field palette.
+
+**Key Features**:
+- Shows available fields (not yet added to layout)
+- Fields are draggable using `useDraggable` from @dnd-kit
+- Layout mode toggle (single-step / multi-step)
+- Add step button
+
+```tsx
+function DetectedFieldItem({ field }: Props) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `palette:${field.name}`,
+    data: { type: 'palette-field', fieldId: field.name },
+  });
+
+  return (
+    <li ref={setNodeRef} {...attributes} {...listeners}>
+      {field.label}
+    </li>
+  );
+}
+```
+
+### 4. LayoutBuilder
+
+**File**: [frontend/src/components/LayoutBuilder.tsx](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/components/LayoutBuilder.tsx)
+
+Drag-and-drop canvas for building form layout.
+
+**Key Features**:
+- Multi-step support
+- Sortable steps (drag to reorder)
+- Sortable fields within steps
+- Up to 3 fields per row
+- Visual drop indicators
+
+```tsx
+export function LayoutBuilder({ schema, dropPositions }: Props) {
+  const layout = useLayoutStore((state) => state.layout);
+
+  return (
+    <div className="layout-builder">
+      <SortableContext items={layout.steps.map((s) => s.id)}>
+        <div className="steps-grid">
+          {layout.steps.map((step) => (
+            <SortableStep key={step.id} step={step} fields={schema.fields} />
+          ))}
+        </div>
+      </SortableContext>
+    </div>
+  );
+}
+```
+
+**SortableStep Component**:
+
+```tsx
+function SortableStep({ step, fields }: Props) {
+  const { setNodeRef, transform, isDragging } = useSortable({
+    id: step.id,
+    data: { type: 'step' },
+  });
+
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `step-drop:${step.id}`,
+    data: { type: 'step-drop', stepId: step.id },
+  });
+
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform) }}>
+      <div className="step-header">
+        <input value={step.title} onChange={(e) => renameStep(step.id, e.target.value)} />
+        <button onClick={() => removeStep(step.id)}>Delete</button>
+      </div>
+      <div ref={setDropRef} className={isOver ? 'is-over' : ''}>
+        {step.rows.map((row) => (
+          <div key={row.id} className="field-row">
+            {row.fields.map((fieldId) => (
+              <FieldItem key={fieldId} fieldId={fieldId} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+### 5. PreviewPanel
+
+**File**: [frontend/src/components/PreviewPanel.tsx](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/components/PreviewPanel.tsx)
+
+Renders live preview of form using Shadow DOM for style isolation.
+
+**Key Features**:
+- Shadow DOM isolation (no style conflicts)
+- Multi-step navigation
+- Form validation
+- Checkbox/radio support
+- Responsive field groups
+
+```tsx
+export function PreviewPanel({ schema, layout }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const shadowRootRef = useRef<ShadowRoot | null>(null);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [formData, setFormData] = useState<FormData>({});
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    if (!shadowRootRef.current) {
+      shadowRootRef.current = containerRef.current.attachShadow({ mode: 'open' });
+    }
+    
+    renderPreview(shadowRootRef.current);
+  }, [schema, layout, currentStep]);
+
+  const renderPreview = (shadowRoot: ShadowRoot) => {
+    shadowRoot.innerHTML = `
+      <style>${PREVIEW_STYLES}</style>
+      <div class="preview-container">
+        <!-- Form HTML -->
+      </div>
+    `;
+    
+    // Attach event listeners
+    attachEventListeners(shadowRoot);
+  };
+
+  return <div ref={containerRef} className="preview-panel" />;
+}
+```
+
+## Custom Hooks
+
+### useHubSpotForms
+
+**File**: [frontend/src/hooks/useHubSpotForms.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/hooks/useHubSpotForms.ts)
+
+Manages HubSpot API interactions.
+
+```typescript
+export function useHubSpotForms() {
+  const [forms, setForms] = useState<HubSpotForm[]>([]);
+  const [schema, setSchema] = useState<FormSchema | null>(null);
+  const [connected, setConnected] = useState(false);
+
+  const checkStatus = useCallback(async () => {
+    const res = await fetch(API_ENDPOINTS.oauthStatus);
+    const data = await res.json();
+    setConnected(data.connected);
+  }, []);
+
+  const fetchForms = useCallback(async () => {
+    const res = await fetch(API_ENDPOINTS.forms);
+    if (res.status === 401) {
+      setConnected(false);
+      throw new Error('Session expired');
+    }
+    const data = await res.json();
+    setForms(data.forms || []);
+  }, []);
+
+  const fetchFormSchema = useCallback(async (formId: string) => {
+    const res = await fetch(API_ENDPOINTS.formDetails(formId));
+    const data = await res.json();
+    setSchema(data.schema || null);
+  }, []);
+
+  return { forms, schema, connected, fetchForms, fetchFormSchema, checkStatus };
+}
+```
+
+### useLayoutStore
+
+**File**: [frontend/src/hooks/useLayoutStore.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/hooks/useLayoutStore.ts)
+
+Zustand store for managing layout state.
+
+```typescript
+import { create } from 'zustand';
+import type { FormSchema, LayoutState } from 'shared';
+
+type LayoutStore = {
+  layout: LayoutState | null;
+  setLayout: (layout: LayoutState) => void;
+  initializeFromSchema: (schema: FormSchema) => void;
+  setMode: (mode: 'one-step' | 'multi-step') => void;
+  addStep: () => void;
+  removeStep: (stepId: string) => void;
+  renameStep: (stepId: string, title: string) => void;
+  moveFieldBetweenSteps: (fieldId: string, fromIndex: number, toIndex: number) => void;
+  removeFieldFromStep: (stepId: string, fieldName: string) => void;
+  addFieldToNewRow: (stepId: string, fieldId: string, insertIndex?: number) => void;
+  addFieldToRow: (stepId: string, fieldId: string, rowId: string, insertIndex: number) => void;
+  moveFieldToNewRow: (stepId: string, fieldId: string, insertIndex?: number) => void;
+  moveFieldWithinStep: (stepId: string, fieldId: string, fromRowId: string, toRowId: string, toIndex: number) => void;
+};
+
+export const useLayoutStore = create<LayoutStore>((set, get) => ({
+  layout: null,
+  setLayout: (layout) => set({ layout }),
+  initializeFromSchema: (schema, mode = 'one-step') => {
+    const fieldNames = schema.fields.map((field) => field.name);
+    set({ layout: buildLayout(fieldNames, mode) });
+  },
+  // ... other actions
+}));
+```
+
+**Key Store Actions**:
+
+- `initializeFromSchema` - Creates initial layout from form schema
+- `setMode` - Switches between single-step and multi-step
+- `addStep` - Adds a new step
+- `removeStep` - Removes a step (moves fields to first step)
+- `renameStep` - Updates step title
+- `moveFieldBetweenSteps` - Moves field from one step to another
+- `addFieldToNewRow` - Adds field from palette to new row
+- `addFieldToRow` - Adds field to existing row (max 3 per row)
+- `moveFieldToNewRow` - Splits field into its own row
+- `moveFieldWithinStep` - Reorders fields within a step
+
+### useLayoutDnd
+
+**File**: [frontend/src/hooks/useLayoutDnd.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/hooks/useLayoutDnd.ts)
+
+Manages drag-and-drop logic using @dnd-kit.
+
+```typescript
+export function useLayoutDnd(schema: FormSchema | null) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    })
+  );
+
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [dropPositions, setDropPositions] = useState(new Map());
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const type = event.active.data.current?.type;
+    setActiveId(String(event.active.id));
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    // Calculate drop position (before/after/inside)
+    // Update visual indicators
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    // Execute the move operation
+    // Update Zustand store
+  };
+
+  return { sensors, activeId, dropPositions, handleDragStart, handleDragOver, handleDragEnd };
+}
+```
+
+**Drag Types**:
+
+1. **`palette-field`** - Field from sidebar (not yet in layout)
+2. **`field`** - Field already in layout
+3. **`step`** - Entire step (for reordering steps)
+
+**Drop Zones**:
+
+1. **`step-drop`** - Drop zone for each step (adds to end)
+2. **`field`** - Drop on existing field (combine or insert)
+
+**Drop Positions**:
+
+- **`before`** - Create new row before target
+- **`after`** - Create new row after target
+- **`inside`** - Add to same row (left/right/center)
+
+## Module Generation
+
+### Export Flow
+
+```typescript
+import { generateModule, downloadModule } from './utils/exportModule';
+
+const handleGenerateModule = async () => {
+  const blob = await generateModule(schema, layout);
+  setGeneratedModule(blob);
+};
+
+const handleDownloadModule = () => {
+  downloadModule(generatedModule, schema.name);
+};
+```
+
+**Generated Files**:
+
+1. `fields.json` - HubSpot module field definitions
+2. `module.html` - HubL template with form markup
+3. `module.css` - Form styles
+4. `module.js` - Multi-step navigation logic
+5. `meta.json` - Module metadata
+
+See: [Module Generators](/architecture/module-generators)
+
+## State Management Flow
+
+```
+┌─────────────────┐
+│  User Action    │
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│  Component      │ (e.g., drag field, rename step)
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│  useLayoutStore │ (Zustand action)
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│  Layout State   │ (immutable update)
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│  React Re-render│ (components subscribed to store)
+└─────────────────┘
+```
+
+## Styling Approach
+
+- **Pure CSS** (no framework like Tailwind)
+- **BEM-like naming** (e.g., `multistep-form__tabs-item`)
+- **CSS custom properties** for theming
+- **Responsive design** with media queries
+- **Shadow DOM styles** isolated in PreviewPanel
+
+## API Endpoints
+
+**File**: [frontend/src/config.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/config.ts)
+
+```typescript
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+export const API_ENDPOINTS = {
+  oauthInstall: `${API_BASE_URL}/oauth/hubspot/install`,
+  oauthStatus: `${API_BASE_URL}/oauth/hubspot/status`,
+  oauthLogout: `${API_BASE_URL}/oauth/hubspot/logout`,
+  forms: `${API_BASE_URL}/api/forms`,
+  formDetails: (id: string) => `${API_BASE_URL}/api/forms/${id}`,
+};
+```
+
+## Build Configuration
+
+**File**: `frontend/vite.config.ts`
+
+```typescript
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 5174,
+  },
+});
+```
+
+## Performance Considerations
+
+- **React 18 concurrent features** - Automatic batching, transitions
+- **Memoization** - useMemo/useCallback where appropriate
+- **Virtualization** - Can be added for large forms
+- **Code splitting** - Dynamic imports for heavy components
+- **Shadow DOM** - Prevents style recalculation in preview
+
+## Related Documentation
+
+- [Architecture Overview](/architecture/overview)
+- [Backend Architecture](/architecture/backend)
+- [Module Generators](/architecture/module-generators)

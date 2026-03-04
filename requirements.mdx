@@ -1,0 +1,381 @@
+---
+title: System Requirements
+description: Prerequisites and requirements for running HubSpot Form Builder.
+---
+
+# System Requirements
+
+Before installing HubSpot Form Builder, ensure your system meets these requirements.
+
+## Development Environment
+
+### Node.js and npm
+
+HubSpot Form Builder requires:
+
+<CardGroup cols={2}>
+  <Card title="Node.js" icon="node-js">
+    **Version:** >= 18.0.0
+    
+    Check your version:
+    ```bash
+    node --version
+    ```
+  </Card>
+  
+  <Card title="npm" icon="box">
+    **Version:** >= 9.0.0
+    
+    Check your version:
+    ```bash
+    npm --version
+    ```
+  </Card>
+</CardGroup>
+
+<Accordion title="How to install or update Node.js">
+  **Using nvm (recommended):**
+  ```bash
+  # Install nvm
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+
+  # Install Node.js 18 or later
+  nvm install 18
+  nvm use 18
+  ```
+
+  **Using official installer:**
+  Download from [nodejs.org](https://nodejs.org/) and install Node.js 18 LTS or later.
+
+  **Using package managers:**
+  ```bash
+  # macOS with Homebrew
+  brew install node@18
+
+  # Ubuntu/Debian
+  curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+  sudo apt-get install -y nodejs
+
+  # Windows with Chocolatey
+  choco install nodejs-lts
+  ```
+</Accordion>
+
+### Package Managers
+
+HubSpot Form Builder works with any of these package managers:
+
+- **npm** (included with Node.js) - v9.0.0 or higher
+- **yarn** (optional) - v1.22.0 or higher
+- **pnpm** (optional) - v7.0.0 or higher
+
+<Note>
+  All examples in this documentation use npm, but you can substitute with yarn or pnpm.
+</Note>
+
+### Git
+
+Required for cloning the repository:
+
+```bash
+git --version
+```
+
+If not installed, download from [git-scm.com](https://git-scm.com/).
+
+### Code Editor (Recommended)
+
+While not required, a code editor is helpful for configuration:
+
+- **Visual Studio Code** (recommended)
+- **WebStorm**
+- **Sublime Text**
+- Or any text editor
+
+## HubSpot Account Requirements
+
+### Account Type
+
+You need a HubSpot account with access to:
+
+<CardGroup cols={3}>
+  <Card title="Forms API" icon="file-lines">
+    Create and manage HubSpot forms
+  </Card>
+  
+  <Card title="CMS Content" icon="globe">
+    Access to HubSpot CMS for deploying modules
+  </Card>
+  
+  <Card title="OAuth Apps" icon="key">
+    Create private apps for authentication
+  </Card>
+</CardGroup>
+
+<Note>
+  Most HubSpot Marketing Hub and CMS Hub accounts include these features. Free accounts have limited API access.
+</Note>
+
+### Required OAuth Scopes
+
+Your HubSpot OAuth app must have these scopes:
+
+| Scope | Purpose | Required |
+|-------|---------|----------|
+| `forms` | Read and write HubSpot forms | ✅ Yes |
+| `content` | Access CMS content and modules | ✅ Yes |
+| `forms-uploaded-files` | Handle file uploads in forms | ✅ Yes |
+
+<Warning>
+  Without these scopes, HubSpot Form Builder cannot fetch forms or generate modules. Verify your OAuth app has all three scopes.
+</Warning>
+
+### OAuth App Configuration
+
+You need to create a private app in HubSpot with:
+
+1. **Redirect URI:** Must match your backend server URL
+   - Development: `http://localhost:3001/oauth/hubspot/callback`
+   - Production: Your production backend URL + `/oauth/hubspot/callback`
+
+2. **Client ID and Secret:** You'll receive these when creating the app
+
+3. **Scopes:** All three scopes listed above
+
+<Tip>
+  See the [Quickstart Guide](/quickstart) for step-by-step instructions on creating an OAuth app.
+</Tip>
+
+## Operating System
+
+HubSpot Form Builder works on:
+
+- **macOS** - 10.15 (Catalina) or later
+- **Linux** - Ubuntu 18.04+, Debian 10+, or equivalent
+- **Windows** - Windows 10 or later (Windows 11 recommended)
+
+<Note>
+  Windows users may need to use WSL (Windows Subsystem for Linux) for the best development experience.
+</Note>
+
+## Browser Requirements
+
+The HubSpot Form Builder web interface requires a modern browser:
+
+### Recommended Browsers
+
+- **Chrome** - Version 100+
+- **Firefox** - Version 100+
+- **Safari** - Version 15+
+- **Edge** - Version 100+
+
+### Browser Features Used
+
+- **ES2020+ JavaScript** - Modern JavaScript features
+- **CSS Grid and Flexbox** - Layout rendering
+- **Drag and Drop API** - Form builder interface
+- **Fetch API** - Communication with backend
+- **Local Storage** - Session management
+
+<Warning>
+  Internet Explorer is not supported. Use a modern browser for the best experience.
+</Warning>
+
+## Network Requirements
+
+### Ports
+
+The following ports must be available:
+
+| Port | Service | Configurable |
+|------|---------|-------------|
+| 3001 | Backend API | ✅ Yes (via `PORT` in `.env`) |
+| 5173 | Frontend Dev Server | ✅ Yes (via Vite config) |
+
+### Firewall
+
+Ensure your firewall allows:
+
+- **Outbound HTTPS (443)** - For HubSpot API requests
+- **Local connections** - Between frontend and backend
+
+### HubSpot API Access
+
+The backend server makes requests to:
+
+- `api.hubapi.com` - HubSpot API endpoints
+- `app.hubspot.com` - OAuth authentication
+
+These domains must be accessible from your backend server.
+
+## Optional Requirements
+
+### Cloudflare Tunnels (Optional)
+
+For testing on multiple devices or remote access:
+
+- **cloudflared CLI** - [Installation guide](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/)
+- **Cloudflare account** - Free tier is sufficient
+
+<Accordion title="When do I need Cloudflare Tunnels?">
+  Cloudflare Tunnels are optional and only needed if you want to:
+
+  - Test your forms on mobile devices
+  - Share your local development server with team members
+  - Test OAuth flows from different devices
+  - Access your local server from outside your network
+
+  For basic local development, you don't need Cloudflare Tunnels.
+</Accordion>
+
+## Disk Space
+
+### Installation Size
+
+- **Source code:** ~500 KB
+- **node_modules (all workspaces):** ~300 MB
+- **Build output:** ~2 MB
+- **Total recommended:** 500 MB free space
+
+### Runtime Storage
+
+During operation:
+
+- **OAuth tokens:** Stored in memory (cleared on server restart)
+- **Generated modules:** Temporary files, ~100 KB per module
+- **Logs:** Minimal, console output only
+
+## Performance Recommendations
+
+### Minimum Specifications
+
+- **CPU:** 2 cores
+- **RAM:** 4 GB
+- **Disk:** 500 MB free space
+- **Network:** Broadband internet (1 Mbps+)
+
+### Recommended Specifications
+
+- **CPU:** 4+ cores
+- **RAM:** 8 GB+
+- **Disk:** SSD with 1 GB+ free space
+- **Network:** High-speed internet (10 Mbps+)
+
+## Development Tools (Optional)
+
+### TypeScript
+
+The project uses TypeScript 5.5.4. The compiler is included in dev dependencies, so you don't need to install it globally.
+
+### ESLint and Prettier
+
+Code quality tools are configured but optional:
+
+```bash
+# Run linter (frontend)
+cd main/frontend
+npm run lint
+
+# Run linter (backend)
+cd main/server
+npm run lint
+```
+
+### Browser DevTools
+
+Recommended for debugging:
+
+- **React DevTools** - [Chrome](https://chrome.google.com/webstore/detail/react-developer-tools/fmkadmapgofadopljbjfkapdkoienihi) | [Firefox](https://addons.mozilla.org/en-US/firefox/addon/react-devtools/)
+- **Redux DevTools** - Useful for inspecting Zustand state
+
+## Verifying Your Environment
+
+Run these commands to verify your setup:
+
+```bash
+# Check Node.js version (should be >= 18.0.0)
+node --version
+
+# Check npm version (should be >= 9.0.0)
+npm --version
+
+# Check Git is installed
+git --version
+
+# Verify ports are available (should show no output if ports are free)
+lsof -i :3001
+lsof -i :5173
+```
+
+<Tip>
+  If any of these checks fail, refer to the installation instructions above for that requirement.
+</Tip>
+
+## Common Environment Issues
+
+<AccordionGroup>
+  <Accordion title="Node.js version too old">
+    **Error:** `The engine "node" is incompatible with this module`
+
+    **Solution:** Update Node.js to version 18 or later:
+    ```bash
+    nvm install 18
+    nvm use 18
+    ```
+  </Accordion>
+
+  <Accordion title="Port already in use">
+    **Error:** `EADDRINUSE: address already in use :::3001`
+
+    **Solution:** Either stop the other process or change the port:
+
+    ```bash
+    # Find what's using the port
+    lsof -i :3001
+
+    # Kill the process (replace PID)
+    kill -9 <PID>
+
+    # Or change the port in main/server/.env
+    PORT=3002
+    ```
+  </Accordion>
+
+  <Accordion title="Cannot access HubSpot API">
+    **Error:** `ENOTFOUND api.hubapi.com`
+
+    **Solution:** Check your internet connection and firewall:
+    ```bash
+    # Test DNS resolution
+    nslookup api.hubapi.com
+
+    # Test HTTPS access
+    curl https://api.hubapi.com
+    ```
+
+    If these fail, check your firewall or VPN settings.
+  </Accordion>
+
+  <Accordion title="Missing OAuth scopes">
+    **Error:** Form data not loading or "Insufficient permissions"
+
+    **Solution:** 
+    1. Go to your HubSpot OAuth app settings
+    2. Verify all three scopes are selected: `forms`, `content`, `forms-uploaded-files`
+    3. If you added scopes after creating the app, click "Disconnect" in HubSpot Form Builder and reconnect
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+Once your environment meets all requirements:
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Follow the installation and setup instructions
+  </Card>
+  
+  <Card title="Introduction" icon="book" href="/introduction">
+    Learn more about HubSpot Form Builder features
+  </Card>
+</CardGroup>

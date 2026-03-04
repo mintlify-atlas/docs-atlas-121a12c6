@@ -1,0 +1,672 @@
+---
+title: Deployment and Production Setup
+description: Deploy the Form Builder to production and configure for multi-device testing
+---
+
+This guide covers deploying the HubSpot Form Builder for production use, including environment configuration, security best practices, and advanced testing setups.
+
+## Development vs Production
+
+Understand the key differences between development and production environments:
+
+| Aspect | Development | Production |
+|--------|-------------|------------|
+| **URLs** | `http://localhost:3001` | `https://your-domain.com` |
+| **CORS** | Permissive (localhost + Cloudflare) | Restricted to specific domains |
+| **OAuth Redirect** | `http://localhost:3001/oauth/...` | `https://your-domain.com/oauth/...` |
+| **HTTPS** | Optional | Required |
+| **Environment Variables** | `.env` files in repo | Secure environment config |
+| **Error Logging** | Console logs | Production logging service |
+| **Token Storage** | In-memory (session-based) | Persistent database |
+
+## Production Environment Setup
+
+Prepare your environment for production deployment.
+
+### 1. Environment Variables
+
+Update your `.env` files for production:
+
+#### Backend (server/.env)
+
+```env
+# Server Configuration
+PORT=3001
+NODE_ENV=production
+
+# HubSpot OAuth
+HUBSPOT_CLIENT_ID=your-production-client-id
+HUBSPOT_CLIENT_SECRET=your-production-client-secret
+HUBSPOT_REDIRECT_URI=https://your-domain.com/oauth/hubspot/callback
+HUBSPOT_SCOPES=forms content forms-uploaded-files
+
+# Frontend URL (for CORS)
+FRONTEND_URL=https://your-domain.com
+
+# Security
+SESSION_SECRET=generate-a-secure-random-string
+```
+
+<Warning>
+  Never commit production `.env` files to version control. Use environment variables in your hosting platform instead.
+</Warning>
+
+#### Frontend (frontend/.env.production)
+
+```env
+# API Configuration
+VITE_API_BASE=https://your-domain.com
+```
+
+**Build command**: 
+```bash
+npm run build
+```
+
+Vite automatically uses `.env.production` during build.
+
+### 2. CORS Configuration
+
+Update CORS settings for production domains:
+
+**Current development config** (server/src/index.ts:10-24):
+```typescript
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowedOrigins = ['http://localhost:5173'];
+
+      if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.trycloudflare.com')) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+  }),
+);
+```
+
+**Production config**:
+```typescript
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowedOrigins = [
+        process.env.FRONTEND_URL,
+        'https://your-domain.com',
+        'https://www.your-domain.com',
+      ].filter(Boolean);
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+  }),
+);
+```
+
+<Note>
+  Remove the `.trycloudflare.com` wildcard in production for security.
+</Note>
+
+### 3. HubSpot OAuth App Configuration
+
+Update your HubSpot OAuth app for production:
+
+<Steps>
+  <Step title="Navigate to OAuth Apps">
+    Go to **Settings** → **Integrations** → **Private Apps** in your HubSpot portal.
+  </Step>
+
+  <Step title="Create Production App">
+    Create a new OAuth app for production (keep development app separate).
+
+    **Name**: "Form Builder (Production)"
+  </Step>
+
+  <Step title="Configure Redirect URI">
+    Set the redirect URI to:
+    ```
+    https://your-domain.com/oauth/hubspot/callback
+    ```
+
+    **Must match exactly** with `HUBSPOT_REDIRECT_URI` in your backend `.env`.
+  </Step>
+
+  <Step title="Set Scopes">
+    Required scopes:
+    - `forms` - Read HubSpot forms
+    - `content` - For CMS module deployment
+    - `forms-uploaded-files` - For file uploads in forms (if needed)
+  </Step>
+
+  <Step title="Copy Credentials">
+    Copy the **Client ID** and **Client Secret** to your production environment variables.
+
+    Store these securely - never commit to version control.
+  </Step>
+</Steps>
+
+## Hosting Options
+
+Choose a hosting platform for your Form Builder:
+
+### Option 1: Vercel (Recommended)
+
+**Pros**:
+- Simple deployment from GitHub
+- Automatic HTTPS
+- Environment variable management
+- Serverless functions for backend
+
+**Setup**:
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy
+vercel --prod
+```
+
+**vercel.json**:
+```json
+{
+  "builds": [
+    { "src": "main/frontend/package.json", "use": "@vercel/static-build" },
+    { "src": "main/server/src/index.ts", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/oauth/(.*)", "dest": "main/server/src/index.ts" },
+    { "src": "/api/(.*)", "dest": "main/server/src/index.ts" },
+    { "src": "/(.*)", "dest": "main/frontend/dist/$1" }
+  ]
+}
+```
+
+### Option 2: AWS (EC2 + S3)
+
+**Backend**: Deploy to EC2 instance
+- Use PM2 to keep Node.js running
+- Configure NGINX as reverse proxy
+- Enable HTTPS with Let's Encrypt
+
+**Frontend**: Deploy to S3 + CloudFront
+- Build with `npm run build`
+- Upload `dist/` folder to S3
+- Configure CloudFront for CDN
+
+### Option 3: DigitalOcean App Platform
+
+**Pros**:
+- Simple configuration
+- Automatic deployments from Git
+- Built-in database options (for future token persistence)
+
+**App spec**:
+```yaml
+name: hubspot-form-builder
+services:
+  - name: backend
+    environment_slug: node-js
+    github:
+      repo: your-username/hubspot-form-builder
+      branch: main
+      deploy_on_push: true
+    source_dir: /main/server
+    envs:
+      - key: HUBSPOT_CLIENT_ID
+        value: ${HUBSPOT_CLIENT_ID}
+    http_port: 3001
+  - name: frontend
+    environment_slug: node-js
+    build_command: npm run build
+    source_dir: /main/frontend
+    envs:
+      - key: VITE_API_BASE
+        value: ${BACKEND_URL}
+    static_sites:
+      - name: app
+        build_output_dir: dist
+```
+
+## Testing on Multiple Devices with Cloudflare Tunnels
+
+For development and QA testing across devices, use Cloudflare Tunnels.
+
+### Why Use Cloudflare Tunnels?
+
+- **Test on mobile**: Access your local dev server from your phone
+- **Test on tablets**: Check responsive layouts on iPads
+- **Share with team**: Let colleagues test without deploying
+- **Free**: No cost for temporary tunnels
+
+### Setup Cloudflare Tunnels
+
+<Steps>
+  <Step title="Install Cloudflared">
+    **macOS**:
+    ```bash
+    brew install cloudflare/cloudflare/cloudflared
+    ```
+
+    **Windows**:
+    Download from [Cloudflare Downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+
+    **Linux**:
+    ```bash
+    wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+    sudo dpkg -i cloudflared-linux-amd64.deb
+    ```
+  </Step>
+
+  <Step title="Start Backend Server">
+    ```bash
+    cd main/server
+    npm run dev
+    # Backend running on http://localhost:3001
+    ```
+  </Step>
+
+  <Step title="Tunnel Backend">
+    Open a new terminal:
+    ```bash
+    cloudflared tunnel --url http://localhost:3001
+    ```
+
+    **Output**:
+    ```
+    INF +--------------------------------------------------------------------------------------------+
+    INF |  Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):  |
+    INF |  https://backend-xyz123.trycloudflare.com                                                  |
+    INF +--------------------------------------------------------------------------------------------+
+    ```
+
+    **Copy this URL** - this is your backend tunnel.
+  </Step>
+
+  <Step title="Update Frontend .env">
+    Edit `main/frontend/.env`:
+    ```env
+    VITE_API_BASE=https://backend-xyz123.trycloudflare.com
+    ```
+  </Step>
+
+  <Step title="Start Frontend Server">
+    ```bash
+    cd main/frontend
+    npm run dev
+    # Frontend running on http://localhost:5173
+    ```
+  </Step>
+
+  <Step title="Tunnel Frontend">
+    Open another new terminal:
+    ```bash
+    cloudflared tunnel --url http://localhost:5173
+    ```
+
+    **Output**:
+    ```
+    INF |  https://frontend-abc789.trycloudflare.com  |
+    ```
+
+    **This is your public URL** - accessible from any device.
+  </Step>
+
+  <Step title="Update HubSpot Redirect URI">
+    In HubSpot OAuth app settings:
+    ```
+    Redirect URI: https://backend-xyz123.trycloudflare.com/oauth/hubspot/callback
+    ```
+
+    Also update `server/.env`:
+    ```env
+    HUBSPOT_REDIRECT_URI=https://backend-xyz123.trycloudflare.com/oauth/hubspot/callback
+    ```
+  </Step>
+
+  <Step title="Test on Other Devices">
+    Open `https://frontend-abc789.trycloudflare.com` on:
+    - Your phone
+    - Tablet
+    - Colleague's computer
+
+    Everything works as if it's deployed!
+  </Step>
+</Steps>
+
+### Important Notes About Tunnels
+
+<Warning>
+  **Tunnel URLs change each time** you run `cloudflared tunnel`. You'll need to update `.env` and HubSpot settings each session.
+</Warning>
+
+<Tip>
+  For **persistent tunnels** with stable URLs, create a named tunnel:
+  ```bash
+  cloudflared tunnel create form-builder
+  cloudflared tunnel route dns form-builder backend.your-domain.com
+  cloudflared tunnel run form-builder
+  ```
+  See [Cloudflare Docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/) for details.
+</Tip>
+
+### Switching Between Localhost and Tunnels
+
+**To revert to localhost**:
+
+1. Stop Cloudflared processes
+2. Update `frontend/.env`:
+   ```env
+   VITE_API_BASE=http://localhost:3001
+   ```
+3. Update `server/.env`:
+   ```env
+   HUBSPOT_REDIRECT_URI=http://localhost:3001/oauth/hubspot/callback
+   ```
+4. Restart dev servers
+
+See the [Cloudflare configuration doc](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/CLOUDFLARE.md) for a detailed guide.
+
+## Security Best Practices
+
+### 1. Keep Secrets Secure
+
+<Accordion title="Use Environment Variables">
+  Never hardcode:
+  - HubSpot Client ID/Secret
+  - OAuth tokens
+  - API keys
+  - Database credentials
+
+  **Use**:
+  - `.env` files (local dev, gitignored)
+  - Hosting platform environment variables (production)
+  - Secret management services (AWS Secrets Manager, etc.)
+</Accordion>
+
+<Accordion title="Rotate Credentials Regularly">
+  - Change HubSpot Client Secret every 90 days
+  - Regenerate OAuth tokens on security incidents
+  - Use different credentials for dev/staging/production
+</Accordion>
+
+<Accordion title="Restrict CORS Origins">
+  Only allow specific domains:
+  ```typescript
+  const allowedOrigins = [
+    'https://your-domain.com',
+    'https://www.your-domain.com',
+  ];
+  ```
+
+  **Never** use `origin: '*'` in production.
+</Accordion>
+
+### 2. Token Storage
+
+**Current implementation** (server/src/oauth.ts):
+- Tokens stored **in-memory** on the server
+- Lost on server restart
+- Single-user session only
+
+**Production recommendation**:
+- Store tokens in a database (PostgreSQL, MongoDB, Redis)
+- Associate tokens with user sessions
+- Implement token refresh logic
+- Encrypt tokens at rest
+
+**Example upgrade**:
+```typescript
+// Token storage with database
+import { db } from './database';
+
+type TokenStore = {
+  userId: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: Date;
+};
+
+async function storeToken(userId: string, tokenData: TokenStore) {
+  await db.tokens.upsert({
+    where: { userId },
+    data: tokenData,
+  });
+}
+
+async function getToken(userId: string) {
+  const token = await db.tokens.findUnique({ where: { userId } });
+  
+  // Refresh if expired
+  if (token && token.expiresAt < new Date()) {
+    return await refreshToken(token.refreshToken);
+  }
+  
+  return token;
+}
+```
+
+### 3. HTTPS Configuration
+
+**Always use HTTPS in production**:
+
+- Protects OAuth tokens in transit
+- Required by HubSpot for OAuth redirects
+- Prevents man-in-the-middle attacks
+
+**Setup with Let's Encrypt** (if self-hosting):
+```bash
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.com
+```
+
+**Hosting platforms** (Vercel, Netlify, etc.) provide HTTPS automatically.
+
+### 4. Rate Limiting
+
+Protect your API from abuse:
+
+```typescript
+import rateLimit from 'express-rate-limit';
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+});
+
+app.use('/api/', limiter);
+app.use('/oauth/', limiter);
+```
+
+### 5. Input Validation
+
+Validate all inputs on the backend:
+
+```typescript
+import { z } from 'zod';
+
+const formSchemaValidator = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(255),
+  fields: z.array(z.object({
+    name: z.string(),
+    type: z.string(),
+    required: z.boolean(),
+  })),
+});
+
+app.post('/api/generate', (req, res) => {
+  try {
+    const validated = formSchemaValidator.parse(req.body);
+    // Proceed with validated data
+  } catch (error) {
+    res.status(400).json({ error: 'Invalid input' });
+  }
+});
+```
+
+## Monitoring and Logging
+
+### Application Logging
+
+Implement structured logging:
+
+```typescript
+import winston from 'winston';
+
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
+
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({
+    format: winston.format.simple(),
+  }));
+}
+
+// Use throughout app
+logger.info('Form schema fetched', { formId, userId });
+logger.error('OAuth error', { error: err.message });
+```
+
+### Error Tracking
+
+Integrate error tracking service:
+
+**Sentry**:
+```typescript
+import * as Sentry from '@sentry/node';
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+});
+
+app.use(Sentry.Handlers.errorHandler());
+```
+
+**LogRocket** (for frontend):
+```typescript
+import LogRocket from 'logrocket';
+
+LogRocket.init('your-app-id');
+```
+
+## Future: HubSpot CLI Integration
+
+The [project roadmap](README.md:227-235) includes direct HubSpot CLI integration for automated deployment.
+
+### Planned Feature
+
+Instead of manually uploading modules:
+
+```bash
+# Future CLI command
+npm run deploy:hubspot
+```
+
+This would:
+1. Generate the module files
+2. Authenticate with HubSpot CLI
+3. Upload to Design Manager automatically
+4. Watch for changes and auto-deploy
+
+### HubSpot CLI Setup (Manual Alternative)
+
+You can already use HubSpot CLI manually:
+
+<Steps>
+  <Step title="Install HubSpot CLI">
+    ```bash
+    npm install -g @hubspot/cli
+    ```
+  </Step>
+
+  <Step title="Authenticate">
+    ```bash
+    hs init
+    ```
+    Follow prompts to connect to your portal.
+  </Step>
+
+  <Step title="Extract Generated Module">
+    After downloading the ZIP from Form Builder:
+    ```bash
+    unzip contact-form.zip -d ./contact-form.module
+    ```
+  </Step>
+
+  <Step title="Upload to HubSpot">
+    ```bash
+    hs upload ./contact-form.module modules/contact-form.module
+    ```
+  </Step>
+
+  <Step title="Watch for Changes">
+    ```bash
+    hs watch modules/contact-form.module modules/contact-form.module
+    ```
+    Now any local edits auto-sync to HubSpot.
+  </Step>
+</Steps>
+
+## Performance Optimization
+
+### Frontend
+
+- **Code splitting**: Vite handles this automatically
+- **Lazy load components**: Use `React.lazy()` for heavy components
+- **Memoization**: Use `React.memo()` for preview components
+- **Debounce drag events**: Already implemented in @dnd-kit
+
+### Backend
+
+- **Cache HubSpot API responses**: Store form schemas in Redis (TTL: 1 hour)
+- **Connection pooling**: If using a database for tokens
+- **Compression**: Enable gzip compression
+
+```typescript
+import compression from 'compression';
+app.use(compression());
+```
+
+## Deployment Checklist
+
+Before going live:
+
+- [ ] Environment variables configured for production
+- [ ] CORS restricted to production domains only
+- [ ] HTTPS enabled and certificates valid
+- [ ] HubSpot OAuth app redirect URI updated
+- [ ] Token storage upgraded to persistent database (recommended)
+- [ ] Rate limiting enabled
+- [ ] Error tracking configured (Sentry/LogRocket)
+- [ ] Application logging implemented
+- [ ] Security headers added (Helmet.js)
+- [ ] Dependencies updated to latest versions
+- [ ] Tested on multiple browsers
+- [ ] Tested on mobile devices
+- [ ] Form submission tested end-to-end
+- [ ] Backup and disaster recovery plan in place
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building Forms" icon="screwdriver-wrench" href="/guides/building-forms">
+    Back to form building basics
+  </Card>
+  <Card title="Exporting Modules" icon="download" href="/guides/exporting-modules">
+    Review module export process
+  </Card>
+</CardGroup>

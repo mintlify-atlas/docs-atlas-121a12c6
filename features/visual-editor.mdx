@@ -1,0 +1,373 @@
+---
+title: Visual Drag-and-Drop Editor
+description: Build multi-step form layouts visually using an intuitive drag-and-drop canvas with row-based organization
+---
+
+## Overview
+
+The Visual Editor is the core component of the HubSpot Form Builder, providing an intuitive drag-and-drop canvas where you can design multi-step form layouts. Built with `@dnd-kit/core`, it offers a flexible row-based layout system that lets you organize fields exactly how you want them.
+
+<Info>
+The editor is implemented in `main/frontend/src/components/LayoutBuilder.tsx` and uses Zustand for state management through `useLayoutStore`.
+</Info>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Drag-and-Drop" icon="hand">
+    Intuitive field arrangement with visual feedback and smooth animations
+  </Card>
+  <Card title="Row-Based Layout" icon="table-rows">
+    Organize up to 3 fields per row for flexible form designs
+  </Card>
+  <Card title="Multi-Step Support" icon="list-ol">
+    Create unlimited steps with independent field groups
+  </Card>
+  <Card title="Real-Time Preview" icon="eye">
+    See changes instantly in the preview panel
+  </Card>
+</CardGroup>
+
+## Canvas Structure
+
+### Steps
+
+The canvas organizes your form into **steps**, which are the top-level containers in a multi-step form:
+
+```tsx
+// From LayoutBuilder.tsx:28-43
+<SortableContext items={layout.steps.map((s) => s.id)} strategy={rectSortingStrategy}>
+  <div className="steps-grid">
+    {layout.steps.map((step) => (
+      <SortableStep
+        key={step.id}
+        step={step}
+        fields={schema.fields}
+        onRename={renameStep}
+        onDelete={() => removeStep(step.id)}
+        canDelete={layout.steps.length > 1}
+        dropPositions={dropPositions}
+      />
+    ))}
+  </div>
+</SortableContext>
+```
+
+Each step contains:
+- **Title**: Editable inline (line 89-95 in LayoutBuilder.tsx)
+- **Rows**: Container for field groups
+- **Delete button**: Available when you have more than one step
+
+### Rows
+
+Rows are the building blocks of your layout. They can contain **1 to 3 fields** and automatically adjust their width:
+
+```tsx
+// From LayoutBuilder.tsx:109-133
+<div className="rows-container">
+  {step.rows.length === 0 ? (
+    <div className="field-empty">No fields yet</div>
+  ) : (
+    step.rows.map((row) => (
+      <div key={row.id} className="field-row">
+        {row.fields.map((fieldId) => {
+          const field = fields.find((f) => f.name === fieldId);
+          return (
+            <FieldItem
+              key={fieldId}
+              fieldId={fieldId}
+              fieldLabel={field?.label || fieldId}
+              required={field?.required}
+              onDelete={() => onDeleteField(fieldId)}
+            />
+          );
+        })}
+      </div>
+    ))
+  )}
+</div>
+```
+
+<Note>
+Rows automatically distribute space evenly between fields. A row with 2 fields will display them at 50% width each, while 3 fields display at approximately 33% width each.
+</Note>
+
+### Fields
+
+Fields are the individual form elements. Each field displays:
+- **Drag handle** (⋮⋮): For reordering within the canvas
+- **Label**: From the HubSpot form schema
+- **Required badge**: For required fields
+- **Delete button**: For optional fields only
+
+```tsx
+// From LayoutBuilder.tsx:147-184
+function FieldItem({ fieldId, fieldLabel, required, position, onDelete }: FieldItemProps) {
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({
+    id: fieldId,
+    data: { type: 'field' },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`field-item ${isDragging ? 'is-dragging' : ''}`}
+    >
+      <div className="field-item-inner">
+        <span className="drag-handle" {...attributes} {...listeners}>
+          ⋮⋮
+        </span>
+        <span className="field-label">{fieldLabel}</span>
+        {required && <span className="field-badge">Required</span>}
+        {!required && (
+          <button onClick={onDelete}>×</button>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+## Step Management
+
+### Creating Steps
+
+<Tabs>
+  <Tab title="Single-Step Mode">
+    In single-step mode, your form has only one step and all fields appear on a single page:
+    
+    ```typescript
+    // From useLayoutStore
+    setMode('one-step')
+    ```
+    
+    This is ideal for simple forms with fewer than 10 fields.
+  </Tab>
+  
+  <Tab title="Multi-Step Mode">
+    Multi-step mode lets you break long forms into logical sections:
+    
+    ```typescript
+    // From useLayoutStore
+    setMode('multi-step')
+    addStep() // Creates a new step at the end
+    ```
+    
+    Perfect for complex forms like registration, onboarding, or applications.
+  </Tab>
+</Tabs>
+
+### Renaming Steps
+
+Click directly on the step title to edit it inline:
+
+```tsx
+// From LayoutBuilder.tsx:89-95
+<input
+  type="text"
+  className="step-title-input"
+  value={step.title}
+  onChange={(e) => onRename(step.id, e.target.value)}
+  placeholder="Step title"
+/>
+```
+
+<Tip>
+Use descriptive step names like "Personal Information", "Company Details", or "Preferences" to guide users through the form.
+</Tip>
+
+### Deleting Steps
+
+You can delete any step except the last one. When a step is deleted:
+1. All fields in that step return to the field palette
+2. The step is removed from the layout
+3. Navigation automatically adjusts
+
+```tsx
+// From LayoutBuilder.tsx:96-105
+{canDelete && (
+  <button
+    className="delete-button"
+    onClick={onDelete}
+    type="button"
+    title="Delete step"
+  >
+    ×
+  </button>
+)}
+```
+
+## Field Arrangement
+
+### Adding Fields to the Canvas
+
+There are several ways to add fields:
+
+<Steps>
+  <Step title="From the Field Palette">
+    Drag a field from the sidebar and drop it onto any step. See [Field Palette](/features/field-palette) for details.
+  </Step>
+  
+  <Step title="Auto-Initialize">
+    When you first select a form, required fields are automatically added to the first step.
+  </Step>
+</Steps>
+
+### Reordering Fields
+
+Fields can be reordered in three ways:
+
+<CodeGroup>
+```typescript Within the Same Row
+// Drag a field left or right within its row
+// Fields swap positions automatically
+```
+
+```typescript To a Different Row
+// Drag a field up or down to move it to another row
+// The field is removed from its current row and added to the target row
+```
+
+```typescript Create a New Row
+// Drag a field to the top or bottom edge of the step
+// A new row is created at that position
+```
+</CodeGroup>
+
+### Drop Zones
+
+The editor provides visual feedback for valid drop zones:
+
+- **Top zone** (before row): Creates a new row above
+- **Center zone** (inside row): Adds to existing row (max 3 fields)
+- **Bottom zone** (after row): Creates a new row below
+
+```tsx
+// From LayoutBuilder.tsx:157
+const positionClass = position === 'before' ? 'drop-before' 
+  : position === 'after' ? 'drop-after' 
+  : position === 'inside' ? 'drop-inside' 
+  : '';
+```
+
+<Warning>
+Rows are limited to 3 fields maximum. If you try to add a 4th field to a row, it will create a new row instead.
+</Warning>
+
+## Visual Feedback
+
+### Drag State
+
+While dragging, the editor provides visual cues:
+
+```tsx
+// From LayoutBuilder.tsx:72-75
+const style = {
+  transform: CSS.Transform.toString(transform),
+  opacity: isDragging ? 0.5 : 1,
+};
+```
+
+- **Dragging item**: 50% opacity
+- **Drop zones**: Highlighted with borders
+- **Hover state**: Background color changes
+- **Drag overlay**: Ghost image follows cursor
+
+### Empty States
+
+When a step has no fields:
+
+```tsx
+// From LayoutBuilder.tsx:110-112
+{step.rows.length === 0 ? (
+  <div className="field-empty">No fields yet</div>
+) : (
+  // ... render rows
+)}
+```
+
+## Technical Implementation
+
+### Component Architecture
+
+The visual editor uses a hierarchical component structure:
+
+```
+LayoutBuilder (main/frontend/src/components/LayoutBuilder.tsx)
+├── SortableContext (dnd-kit)
+│   └── SortableStep (one per step)
+│       ├── Step Header (title + delete button)
+│       ├── Drop Zone
+│       └── Rows Container
+│           └── FieldItem (sortable fields)
+│               ├── Drag Handle
+│               ├── Label
+│               ├── Badge (if required)
+│               └── Delete Button (if optional)
+```
+
+### State Management
+
+The editor uses Zustand for state management:
+
+```typescript
+// Available actions from useLayoutStore
+const layout = useLayoutStore((state) => state.layout);
+const renameStep = useLayoutStore((state) => state.renameStep);
+const removeStep = useLayoutStore((state) => state.removeStep);
+const removeFieldFromStep = useLayoutStore((state) => state.removeFieldFromStep);
+```
+
+### Drag-and-Drop System
+
+Implemented with `@dnd-kit/core` and `@dnd-kit/sortable`:
+
+```typescript
+// From LayoutBuilder.tsx:67-70
+const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
+  id: step.id,
+  data: { type: 'step' },
+});
+```
+
+<Info>
+The DnD system distinguishes between three data types:
+- `type: 'step'` - For reordering steps
+- `type: 'field'` - For fields within the canvas  
+- `type: 'palette-field'` - For fields from the sidebar
+</Info>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Optimal Row Layout">
+    - **1 field per row**: Best for important fields like email or phone
+    - **2 fields per row**: Good for related fields like first/last name
+    - **3 fields per row**: Use for compact forms, but test on mobile
+  </Accordion>
+  
+  <Accordion title="Step Organization">
+    - Group related fields together in the same step
+    - Keep steps to 5-8 fields maximum for better completion rates
+    - Put the most important fields in the first step
+    - Save optional fields for later steps
+  </Accordion>
+  
+  <Accordion title="Field Ordering">
+    - Follow a logical flow (e.g., personal info → company info → preferences)
+    - Place required fields at the top of each step
+    - Group similar field types together (e.g., all checkboxes together)
+  </Accordion>
+</AccordionGroup>
+
+## Keyboard Shortcuts
+
+<Note>
+Keyboard shortcuts coming soon! Currently, the editor is mouse/touch-only.
+</Note>
+
+## Related Documentation
+
+- [Field Palette](/features/field-palette) - Learn about the field palette and dragging fields
+- [Preview Panel](/features/preview) - Test your form in real-time
+- [Module Export](/features/module-export) - Export your layout to HubSpot

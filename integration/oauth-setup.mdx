@@ -1,0 +1,253 @@
+---
+title: OAuth Setup
+description: Configure HubSpot OAuth integration for the Form Builder
+---
+
+## Overview
+
+The HubSpot Form Builder uses OAuth 2.0 to securely connect to your HubSpot account. This guide walks you through creating and configuring a HubSpot OAuth app.
+
+<Note>
+  OAuth 2.0 provides secure, token-based authentication without exposing your credentials. The Form Builder stores access tokens temporarily in memory.
+</Note>
+
+## Creating a HubSpot OAuth App
+
+<Steps>
+  <Step title="Navigate to HubSpot Settings">
+    Log into your HubSpot account and go to **Settings → Integrations → Private Apps**.
+  </Step>
+
+  <Step title="Create New App">
+    Click **"Create a private app"** to start the setup process.
+    
+    Provide a descriptive name for your app, such as "Form Builder OAuth" or "Multistep Form Builder".
+  </Step>
+
+  <Step title="Configure Required Scopes">
+    The Form Builder requires the following scopes to function properly:
+
+    - **`forms`** - Access to read HubSpot forms and their metadata
+    - **`content`** - Access to CMS content for module deployment
+    - **`forms-uploaded-files`** - Access to file uploads within forms
+
+    <Warning>
+      All three scopes are required. Missing any scope will cause API requests to fail with 403 Forbidden errors.
+    </Warning>
+  </Step>
+
+  <Step title="Set Redirect URI">
+    Add your OAuth callback URL to the Redirect URIs section:
+
+    **For local development:**
+    ```
+    http://localhost:3001/oauth/hubspot/callback
+    ```
+
+    **For production/tunnels:**
+    ```
+    https://your-tunnel-url.trycloudflare.com/oauth/hubspot/callback
+    ```
+
+    <Note>
+      The redirect URI must match **exactly** with the value in your `.env` file, including the protocol (http/https) and trailing path.
+    </Note>
+  </Step>
+
+  <Step title="Copy Credentials">
+    After creating the app, HubSpot will display:
+    
+    - **Client ID** - A public identifier for your app
+    - **Client Secret** - A private key (keep this secure!)
+
+    Copy both values - you'll need them for environment configuration.
+
+    <Warning>
+      The Client Secret is only shown once. If you lose it, you'll need to regenerate the secret.
+    </Warning>
+  </Step>
+</Steps>
+
+## Environment Configuration
+
+Configure your backend server with the OAuth credentials.
+
+### Backend Environment Variables
+
+Create or update `main/server/.env`:
+
+```env
+# Server Configuration
+PORT=3001
+
+# HubSpot OAuth Credentials
+HUBSPOT_CLIENT_ID=your-client-id-here
+HUBSPOT_CLIENT_SECRET=your-client-secret-here
+HUBSPOT_REDIRECT_URI=http://localhost:3001/oauth/hubspot/callback
+
+# Frontend URL (for post-OAuth redirect)
+FRONTEND_URL=http://localhost:5173/
+
+# Required OAuth Scopes
+HUBSPOT_SCOPES=forms content forms-uploaded-files
+```
+
+<Note>
+  The `HUBSPOT_SCOPES` variable must match the scopes you selected when creating the app. Multiple scopes are separated by spaces.
+</Note>
+
+### Frontend Environment Variables
+
+Create or update `main/frontend/.env`:
+
+```env
+VITE_API_BASE=http://localhost:3001
+```
+
+## OAuth Flow Implementation
+
+The Form Builder implements the standard OAuth 2.0 authorization code flow:
+
+### 1. Authorization Request
+
+When a user clicks "Connect to HubSpot", the app generates a secure state token and redirects to HubSpot:
+
+```typescript
+// From oauth.ts:46-51
+router.get('/hubspot/install', (_req: Request, res: Response) => {
+  const state = crypto.randomBytes(24).toString('hex');
+  stateStore.set(state, Date.now());
+  const url = buildAuthorizeUrl(state);
+  res.redirect(url);
+});
+```
+
+The authorization URL is constructed with:
+- Client ID
+- Redirect URI
+- Required scopes
+- Random state parameter (prevents CSRF attacks)
+
+### 2. Token Exchange
+
+After the user authorizes the app, HubSpot redirects back with an authorization code. The server exchanges this code for access and refresh tokens:
+
+```typescript
+// From oauth.ts:76-94
+const tokenRes = await fetch(HUBSPOT_TOKEN_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body,
+});
+
+const tokenJson = await tokenRes.json();
+
+const record: TokenRecord = {
+  accessToken: tokenJson.access_token,
+  refreshToken: tokenJson.refresh_token,
+  expiresAt: Date.now() + tokenJson.expires_in * 1000,
+  portalId: tokenJson.hub_id,
+};
+```
+
+### 3. Token Storage
+
+Tokens are stored in-memory for the session:
+
+```typescript
+// From oauth.ts:7-15
+type TokenRecord = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  portalId?: number;
+};
+
+const tokenStore = new Map<string, TokenRecord>();
+```
+
+<Warning>
+  Tokens are stored in-memory and will be lost when the server restarts. For production use, implement persistent storage (database, Redis, etc.).
+</Warning>
+
+## Security Considerations
+
+### State Parameter
+
+The OAuth flow uses a cryptographically random state parameter to prevent CSRF attacks:
+
+```typescript
+// From oauth.ts:47-48
+const state = crypto.randomBytes(24).toString('hex');
+stateStore.set(state, Date.now());
+```
+
+The state is validated during the callback to ensure the request originated from your application.
+
+### Environment Variables
+
+Never commit `.env` files to version control:
+
+```bash
+# Add to .gitignore
+.env
+.env.local
+.env.*.local
+```
+
+### HTTPS in Production
+
+<Warning>
+  Always use HTTPS in production. OAuth tokens transmitted over HTTP can be intercepted by attackers.
+</Warning>
+
+## Troubleshooting
+
+### "Missing env var" Error
+
+If you see this error, ensure all required environment variables are set:
+
+```typescript
+// From oauth.ts:20-26
+function getEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing env var: ${name}`);
+  }
+  return value;
+}
+```
+
+Required variables:
+- `HUBSPOT_CLIENT_ID`
+- `HUBSPOT_CLIENT_SECRET`
+- `HUBSPOT_REDIRECT_URI`
+- `HUBSPOT_SCOPES`
+
+### "Invalid state or code" Error
+
+This error occurs when:
+- The state parameter doesn't match (possible CSRF attempt)
+- The authorization code is missing
+- The redirect URI doesn't match exactly
+
+Solution: Verify your `HUBSPOT_REDIRECT_URI` matches the value configured in HubSpot.
+
+### "Token exchange failed" Error
+
+Common causes:
+- Incorrect Client ID or Client Secret
+- Mismatched redirect URI
+- Expired authorization code (codes expire after ~60 seconds)
+
+Check the error details in the response for specific information.
+
+## Next Steps
+
+<Card title="Connecting to HubSpot" icon="link" href="/integration/connecting">
+  Learn how to connect the Form Builder to your HubSpot account
+</Card>
+
+<Card title="HubSpot API Reference" icon="code" href="/integration/hubspot-api">
+  Explore the API endpoints used by the Form Builder
+</Card>

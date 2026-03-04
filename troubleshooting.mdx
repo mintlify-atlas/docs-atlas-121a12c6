@@ -1,0 +1,551 @@
+---
+title: 'Troubleshooting'
+description: 'Common issues and solutions for HubSpot Form Builder'
+---
+
+# Troubleshooting
+
+This guide covers common issues you might encounter when using HubSpot Form Builder and how to resolve them.
+
+## Connection Issues
+
+### Error: "localhost refused to connect"
+
+<Warning>
+This error occurs when one or both servers (frontend or backend) are not running.
+</Warning>
+
+**Solution:**
+
+Ensure both servers are running in separate terminal windows:
+
+```bash
+# Terminal 1 - Backend
+cd main/server
+npm run dev
+# Should see: "Server running on http://0.0.0.0:3001"
+
+# Terminal 2 - Frontend  
+cd main/frontend
+npm run dev
+# Should see: "Local: http://localhost:5173"
+```
+
+**Verification:**
+- Backend should be accessible at `http://localhost:3001`
+- Frontend should be accessible at `http://localhost:5173`
+- Check terminal output for any error messages
+
+---
+
+### Error: "Not allowed by CORS"
+
+<Warning>
+This error indicates a mismatch between the frontend URL and the CORS configuration in the backend.
+</Warning>
+
+**Solution:**
+
+Verify that `FRONTEND_URL` in your backend `.env` file matches your actual frontend URL:
+
+**For local development:**
+```env
+# main/server/.env
+FRONTEND_URL=http://localhost:5173/
+```
+
+**For Cloudflare tunnels:**
+```env
+# main/server/.env  
+FRONTEND_URL=https://your-frontend-tunnel.trycloudflare.com/
+```
+
+<Note>
+Make sure to include the trailing slash in `FRONTEND_URL`.
+</Note>
+
+**Additional steps:**
+1. Restart the backend server after changing `.env`
+2. Clear your browser cache
+3. Try accessing from an incognito window
+
+---
+
+### CORS Error: "Loopback address space blocked"
+
+**Problem:** Accessing the app from a Cloudflare tunnel URL while the backend points to localhost.
+
+**Solution - Option 1 (Recommended for development):**
+Access the app from localhost instead:
+```
+http://localhost:5173
+```
+
+**Solution - Option 2 (For testing on multiple devices):**
+Tunnel both frontend and backend:
+```bash
+# Terminal 3 - Backend Tunnel
+cloudflared tunnel --url http://localhost:3001
+
+# Terminal 4 - Frontend Tunnel  
+cloudflared tunnel --url http://localhost:5173
+```
+
+Then update your `.env` files with the tunnel URLs:
+```env
+# main/frontend/.env
+VITE_API_BASE=https://your-backend-tunnel.trycloudflare.com
+
+# main/server/.env
+FRONTEND_URL=https://your-frontend-tunnel.trycloudflare.com/
+```
+
+---
+
+## OAuth & Authentication Issues
+
+### Error: "Invalid state or code"
+
+<Warning>
+This OAuth error occurs when the redirect URI doesn't match the configuration in HubSpot.
+</Warning>
+
+**Solution:**
+
+1. **Check your backend `.env` file:**
+```env
+HUBSPOT_REDIRECT_URI=http://localhost:3001/oauth/hubspot/callback
+```
+
+2. **Verify HubSpot app settings:**
+   - Go to HubSpot: **Settings → Integrations → Private Apps**
+   - Open your app
+   - Check that Redirect URL is **exactly**: `http://localhost:3001/oauth/hubspot/callback`
+   - No trailing slash, exact port number
+
+3. **For Cloudflare tunnels:**
+   - Update redirect URI to your tunnel URL
+   - Update it in **both** HubSpot app settings and `.env`
+
+<Tip>
+The redirect URI must match character-for-character between HubSpot and your `.env` file.
+</Tip>
+
+---
+
+### Token Error in `/api/forms`
+
+**Problem:** API calls fail with authentication errors after OAuth.
+
+**Solution:**
+
+1. **Verify OAuth flow completed:**
+   - You should see "Connected" status in the UI
+   - Check browser console for connection confirmation
+
+2. **Check backend logs:**
+   - Look for token storage confirmation
+   - Verify token was successfully retrieved
+
+3. **Re-authenticate:**
+   - Click "Cerrar sesión" (Logout)
+   - Click "Connect to HubSpot" again
+   - Complete OAuth flow
+
+4. **Verify required scopes:**
+```env
+# main/server/.env
+HUBSPOT_SCOPES=forms content forms-uploaded-files
+```
+
+---
+
+## HubSpot Integration Issues
+
+### Dropdown Not Populating with Forms
+
+**Problem:** After connecting, the form selector dropdown remains empty.
+
+**Troubleshooting steps:**
+
+1. **Check browser console (F12):**
+   - Look for failed API requests
+   - Check for JavaScript errors
+
+2. **Verify your HubSpot account has forms:**
+   - Log into HubSpot
+   - Go to **Marketing → Lead Capture → Forms**
+   - Ensure at least one form exists
+
+3. **Check backend logs:**
+   - Look for `/api/forms` request
+   - Verify response contains forms array
+
+4. **Verify scopes:**
+   - Ensure `forms` scope is included in `HUBSPOT_SCOPES`
+   - Re-authenticate if you recently added the scope
+
+---
+
+### Forms Not Loading Fields
+
+**Problem:** Selected form doesn't display fields in the palette.
+
+**Solution:**
+
+1. **Ensure form has fields:**
+   - Check the form in HubSpot has actual fields defined
+   - Empty forms will show "Todos los campos están en uso"
+
+2. **Check field schema:**
+   - Open browser console
+   - Look for schema loading errors
+   - Verify field data structure is valid
+
+---
+
+## Module Generation & Export Issues
+
+### Module Generation Fails
+
+**Problem:** Clicking "Generar Módulo" produces an error.
+
+**Common causes:**
+
+1. **Empty layout:**
+   - Ensure you have at least one field in the canvas
+   - Add fields from the palette before generating
+
+2. **Missing required fields:**
+   - Required fields (marked with ⭐) must be in the layout
+   - Check validation warnings
+
+3. **Browser compatibility:**
+   - Use a modern browser (Chrome, Firefox, Safari, Edge)
+   - Ensure JavaScript is enabled
+
+**Solution:**
+- Verify all required fields are added to the canvas
+- Check browser console for specific errors
+- Try refreshing the page and rebuilding the layout
+
+---
+
+### ZIP Download Not Working
+
+**Problem:** "Descargar Módulo" button doesn't download the file.
+
+**Solution:**
+
+1. **Check browser download settings:**
+   - Ensure downloads are not blocked
+   - Check your Downloads folder
+
+2. **Try different browser:**
+   - Test in Chrome/Firefox if using Safari
+   - Some browsers handle blob downloads differently
+
+3. **Check browser console:**
+   - Look for download-related errors
+   - Verify ZIP generation completed
+
+---
+
+## Environment & Configuration Issues
+
+### Missing Environment Variables
+
+**Problem:** Server crashes with "Missing env var" error.
+
+**Solution:**
+
+Ensure all required variables are set:
+
+**Backend (`main/server/.env`):**
+```env
+PORT=3001
+HUBSPOT_CLIENT_ID=your-client-id
+HUBSPOT_CLIENT_SECRET=your-client-secret  
+HUBSPOT_REDIRECT_URI=http://localhost:3001/oauth/hubspot/callback
+FRONTEND_URL=http://localhost:5173/
+HUBSPOT_SCOPES=forms content forms-uploaded-files
+```
+
+**Frontend (`main/frontend/.env`):**
+```env
+VITE_API_BASE=http://localhost:3001
+```
+
+<Warning>
+Never commit `.env` files to version control. Use `.env.example` as a template.
+</Warning>
+
+---
+
+### Port Already in Use
+
+**Problem:** Backend fails to start with "Port 3001 already in use".
+
+**Solution:**
+
+**Option 1 - Kill the existing process:**
+
+```bash
+# Linux/Mac
+lsof -ti:3001 | xargs kill -9
+
+# Windows
+netstat -ano | findstr :3001
+taskkill /PID <PID> /F
+```
+
+**Option 2 - Use a different port:**
+
+```env
+# main/server/.env
+PORT=3002
+```
+
+Also update frontend configuration:
+```env  
+# main/frontend/.env
+VITE_API_BASE=http://localhost:3002
+```
+
+And HubSpot redirect URI:
+```env
+# main/server/.env
+HUBSPOT_REDIRECT_URI=http://localhost:3002/oauth/hubspot/callback
+```
+
+---
+
+## Build & Compilation Errors
+
+### TypeScript Compilation Errors
+
+**Problem:** Build fails with TypeScript errors.
+
+**Solution:**
+
+1. **Ensure dependencies are installed:**
+```bash
+cd main/server
+npm install
+
+cd ../frontend  
+npm install
+```
+
+2. **Check TypeScript version:**
+```bash
+npx tsc --version
+# Should be 5.5.4 or higher
+```
+
+3. **Clean and rebuild:**
+```bash
+rm -rf node_modules package-lock.json
+npm install
+npm run build
+```
+
+---
+
+### Module Import Errors
+
+**Problem:** "Cannot find module 'shared'" or similar errors.
+
+**Solution:**
+
+The `shared` package is a local workspace dependency. Install from the project root:
+
+```bash
+cd "HubSpot Form builder"
+npm install
+```
+
+Or install in each workspace:
+```bash
+cd main/shared
+npm install
+
+cd ../server
+npm install
+
+cd ../frontend
+npm install
+```
+
+---
+
+## Drag & Drop Issues
+
+### Fields Not Draggable
+
+**Problem:** Cannot drag fields from palette or within canvas.
+
+**Solution:**
+
+1. **Browser compatibility:**
+   - Use Chrome, Firefox, Safari, or Edge (latest versions)
+   - Disable browser extensions that might interfere
+
+2. **Check console for errors:**
+   - Open DevTools (F12)
+   - Look for dnd-kit related errors
+
+3. **Verify field is available:**
+   - Field must be in palette to drag from there
+   - Field must be in canvas to reorder
+
+---
+
+### Cannot Drop Field / Drop Zones Not Appearing
+
+**Problem:** Drop zones don't highlight or field doesn't drop.
+
+**Solution:**
+
+1. **Row is full:**
+   - Maximum 3 fields per row
+   - Create a new row or drop in a different position
+
+2. **Field already in use:**
+   - Each field can only appear once in the layout
+   - Check if field is already placed elsewhere
+
+3. **Drop in correct zone:**
+   - Top 20% of field = new row above
+   - Center = add to same row
+   - Bottom 20% = new row below
+
+---
+
+## Performance Issues
+
+### Slow Performance / Lag
+
+**Problem:** Application is slow or unresponsive.
+
+**Solution:**
+
+1. **Large forms:**
+   - Forms with 50+ fields may be slower
+   - Consider splitting into multiple forms
+
+2. **Browser performance:**
+   - Close unnecessary browser tabs
+   - Clear browser cache
+   - Restart browser
+
+3. **Check system resources:**
+   - Ensure adequate RAM available
+   - Close other applications
+
+---
+
+## Debugging Tips
+
+<Accordion title="Enable Detailed Logging">
+
+**Backend logging:**
+```typescript
+// main/server/src/index.ts
+console.log('Request:', req.method, req.path);
+console.log('Headers:', req.headers);
+console.log('Body:', req.body);
+```
+
+**Frontend logging:**
+```typescript
+// Check store state
+console.log('Layout:', useLayoutStore.getState());
+console.log('Schema:', schema);
+```
+
+</Accordion>
+
+<Accordion title="Check Browser Console">
+
+1. Open DevTools: Press `F12` or right-click → Inspect
+2. Go to Console tab
+3. Look for:
+   - Red error messages
+   - Failed network requests (4xx, 5xx)
+   - JavaScript exceptions
+4. Check Network tab for API calls
+
+</Accordion>
+
+<Accordion title="Verify Server Responses">
+
+Use curl or Postman to test backend endpoints:
+
+```bash
+# Check connection status
+curl http://localhost:3001/oauth/hubspot/status
+
+# Test forms endpoint (after auth)
+curl http://localhost:3001/api/forms
+```
+
+</Accordion>
+
+<Accordion title="Reset Application State">
+
+If issues persist, reset the application:
+
+1. **Clear browser storage:**
+   - Open DevTools → Application tab
+   - Clear Local Storage and Session Storage
+   - Refresh page
+
+2. **Restart servers:**
+   - Stop both frontend and backend (Ctrl+C)
+   - Restart both servers
+
+3. **Re-authenticate:**
+   - Logout from HubSpot connection
+   - Complete OAuth flow again
+
+</Accordion>
+
+---
+
+## Getting Help
+
+<Card title="Still Having Issues?" icon="question">
+If you're still experiencing problems after trying these solutions:
+
+1. **Check existing GitHub issues:**
+   - Search for similar problems
+   - Check if issue is already reported
+
+2. **Create a new issue:**
+   - Go to the GitHub repository
+   - Click "Issues" → "New Issue"
+   - Provide:
+     - Detailed description of the problem
+     - Steps to reproduce
+     - Error messages (console logs)
+     - Environment details (OS, Node version, browser)
+     - Screenshots if applicable
+
+3. **Include diagnostic information:**
+   ```bash
+   # Node and npm versions
+   node --version
+   npm --version
+   
+   # Check environment variables (sanitized)
+   cat main/server/.env | grep -v SECRET | grep -v CLIENT_ID
+   ```
+</Card>
+
+<Note>
+**Documentation:** For more information, check:
+- [Quick Reference](/quickstart) - Setup guide
+- [Development Guide](/development) - Development workflow  
+- [FAQ](/faq) - Frequently asked questions
+</Note>

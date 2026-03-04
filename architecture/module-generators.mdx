@@ -1,0 +1,678 @@
+---
+title: 'Module Generators'
+description: 'Deep dive into the module generation system that transforms layout state into HubSpot CMS modules'
+---
+
+## Overview
+
+The module generation system transforms the form schema and layout state into a complete HubSpot CMS module. It generates five files that are packaged into a ZIP file for upload to HubSpot.
+
+## Generated Files
+
+1. **fields.json** - Module field definitions (CMS configuration)
+2. **module.html** - HubL template with form markup
+3. **module.css** - Form styles
+4. **module.js** - Multi-step navigation and validation logic
+5. **meta.json** - Module metadata
+
+## Architecture
+
+```
+┌──────────────┐     ┌──────────────┐
+│ FormSchema   │     │ LayoutState  │
+└──────┬───────┘     └──────┬───────┘
+       │                    │
+       └────────┬───────────┘
+                │
+                v
+       ┌────────────────┐
+       │ exportModule() │
+       └────────┬───────┘
+                │
+                v
+    ┌───────────────────────┐
+    │  Module Generators    │
+    ├───────────────────────┤
+    │ • fieldsJsonGenerator │
+    │ • moduleHtmlGenerator │
+    │ • moduleCssGenerator  │
+    │ • moduleJsGenerator   │
+    └───────────┬───────────┘
+                │
+                v
+         ┌──────────────┐
+         │   JSZip      │
+         └──────┬───────┘
+                │
+                v
+         ┌──────────────┐
+         │  module.zip  │
+         └──────────────┘
+```
+
+## Export Module Orchestrator
+
+**File**: [frontend/src/utils/exportModule.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/utils/exportModule.ts)
+
+Orchestrates the generation and packaging process.
+
+```typescript
+import JSZip from 'jszip';
+import type { FormSchema, LayoutState } from 'shared';
+import {
+  generateFieldsJson,
+  generateModuleHtml,
+  generateModuleCss,
+  generateModuleJs,
+} from './moduleGenerators';
+
+function sanitizeModuleName(name: string): string {
+  return name
+    .trim()
+    .replace(/[^a-zA-Z0-9-_\s]/g, '')
+    .replace(/\s+/g, '-')
+    .toLowerCase();
+}
+
+function generateMetaJson(schema: FormSchema) {
+  const moduleId = crypto.randomUUID();
+
+  return {
+    label: schema.name,
+    icon: 'form',
+    css_assets: [],
+    external_dependencies: [],
+    extra_body_html: '',
+    global: false,
+    help_text: '',
+    host_template_types: ['PAGE', 'BLOG_POST', 'BLOG_LISTING'],
+    js_assets: [],
+    module_id: moduleId,
+    other_assets: [],
+    smart_type: 'NOT_SMART',
+    tags: [],
+    is_available_for_new_content: true,
+  };
+}
+
+export async function generateModule(schema: FormSchema, layout: LayoutState): Promise<Blob> {
+  const zip = new JSZip();
+  const moduleName = sanitizeModuleName(schema.name);
+  const moduleFolder = zip.folder(`${moduleName}.module`);
+
+  if (!moduleFolder) {
+    throw new Error('Failed to create module folder in ZIP');
+  }
+
+  // Generate all files
+  const fieldsJson = generateFieldsJson(schema, layout);
+  const moduleHtml = generateModuleHtml();
+  const moduleCss = generateModuleCss();
+  const moduleJs = generateModuleJs();
+  const metaJson = generateMetaJson(schema);
+
+  // Add files to ZIP
+  moduleFolder.file('fields.json', JSON.stringify(fieldsJson, null, 2));
+  moduleFolder.file('module.html', moduleHtml);
+  moduleFolder.file('module.css', moduleCss);
+  moduleFolder.file('module.js', moduleJs);
+  moduleFolder.file('meta.json', JSON.stringify(metaJson, null, 2));
+
+  // Generate blob
+  const blob = await zip.generateAsync({
+    type: 'blob',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 },
+  });
+
+  return blob;
+}
+
+export function downloadModule(blob: Blob, moduleName: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${sanitizeModuleName(moduleName)}.zip`;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(() => {
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, 100);
+}
+```
+
+## Generator: fields.json
+
+**File**: [frontend/src/utils/moduleGenerators/fieldsJsonGenerator.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/utils/moduleGenerators/fieldsJsonGenerator.ts)
+
+Generates the HubSpot module field definitions that appear in the CMS editor.
+
+### Field Type Mapping
+
+```typescript
+function mapFieldType(schemaType: string, hasMultipleOptions: boolean): FieldType {
+  const type = schemaType.toLowerCase();
+  
+  switch (type) {
+    case 'email': return 'email';
+    case 'phone':
+    case 'tel': return 'phone_number';
+    case 'textarea': return 'rich_text';
+    case 'select':
+    case 'dropdown': return 'dropdown';
+    case 'checkbox': return hasMultipleOptions ? 'checkbox' : 'boolean';
+    case 'radio': return 'radio';
+    case 'text':
+    case 'number':
+    default: return 'text';
+  }
+}
+```
+
+### Structure
+
+The fields.json file defines:
+
+1. **Module metadata fields**:
+   - `sr_module_id` - Optional module ID
+   - `class` - Optional CSS class
+   - `style_group` - Style configuration group
+
+2. **Steps group** (repeatable):
+   - `tab_label` - Step label (e.g., "STEP 1")
+   - `tab_name` - Step title
+   - `field_group` - Nested group for field rows (repeatable)
+     - `field` - Individual fields (up to 3 per group)
+       - `field_type` - Field type (text, email, dropdown, etc.)
+       - `field_label` - Display label
+       - `form_property` - HubSpot form field name
+       - `required` - Is field required
+       - `choices` - Options for select/radio/checkbox
+   - `buttons` - Button text configuration
+
+3. **HubSpot form field**:
+   - `form` - Hidden HubSpot form for submission
+
+### Example Output Structure
+
+```json
+[
+  {
+    "id": "steps_group",
+    "name": "steps",
+    "label": "Steps",
+    "type": "group",
+    "occurrence": {
+      "min": 1,
+      "max": null,
+      "default": 2
+    },
+    "children": [
+      {
+        "id": "tab_label",
+        "name": "tab_label",
+        "label": "Label",
+        "type": "text",
+        "default": "STEP 1"
+      },
+      {
+        "id": "field_group",
+        "name": "field_group",
+        "label": "Field Group",
+        "type": "group",
+        "occurrence": { "min": null, "max": null },
+        "children": [
+          {
+            "id": "field",
+            "name": "field",
+            "label": "Field",
+            "type": "group",
+            "occurrence": { "min": 1, "max": 3 },
+            "children": [
+              {
+                "id": "field_type",
+                "name": "field_type",
+                "label": "Field Type",
+                "type": "choice",
+                "choices": [
+                  ["text", "Text"],
+                  ["email", "Email"],
+                  ["phone_number", "Phone number"]
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "default": [
+      {
+        "tab_label": "STEP 1",
+        "tab_name": "Personal Info",
+        "field_group": [
+          {
+            "field": [
+              {
+                "field_type": "text",
+                "field_label": "First Name",
+                "form_property": "firstname",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
+## Generator: module.html
+
+**File**: [frontend/src/utils/moduleGenerators/moduleHtmlGenerator.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/utils/moduleGenerators/moduleHtmlGenerator.ts)
+
+Generates the HubL template with form markup.
+
+### Key Features
+
+- **HubL templating** - Uses Jinja-like syntax
+- **Multi-step tabs** - ARIA-compliant tab navigation
+- **Field groups** - Up to 3 fields per row (grid layout)
+- **Conditional logic** - Support for field visibility rules
+- **Accessibility** - Proper ARIA attributes and labels
+- **Hidden HubSpot form** - Collects data and submits to HubSpot
+
+### Template Structure
+
+```html
+<div class="multistep-form" id="{{ name }}_{{ id }}">
+  <!-- Step tabs -->
+  <div class="multistep-form__tabs" role="tablist">
+    {% for step in module.steps %}
+    <button role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}">
+      <span class="step">{{ step.tab_label }}</span>
+      {{ step.tab_name }}
+    </button>
+    {% endfor %}
+  </div>
+
+  <!-- Form panels -->
+  <div class="multistep-form__form">
+    {% for step in module.steps %}
+    <section role="tabpanel" {{ "hidden" if not loop.first }}>
+      <!-- Field groups -->
+      {% for field_group in step.field_group %}
+      <div class="field-group field-group--cols-{{ field_group.field|length }}">
+        {% for field in field_group.field %}
+          <!-- Field HTML -->
+        {% endfor %}
+      </div>
+      {% endfor %}
+      
+      <!-- Navigation buttons -->
+      <div class="form-actions">
+        {% if not loop.first %}
+        <button type="button" data-action="prev">{{ step.buttons.previous }}</button>
+        {% endif %}
+        
+        {% if loop.last %}
+        <button type="submit">{{ step.buttons.next }}</button>
+        {% else %}
+        <button type="button" data-action="next">{{ step.buttons.next }}</button>
+        {% endif %}
+      </div>
+    </section>
+    {% endfor %}
+    
+    <!-- Hidden HubSpot form -->
+    <div class="multistep-form__hs-form" hidden>
+      {% form form_to_use="{{ module.form.form_id }}" %}
+    </div>
+  </div>
+</div>
+```
+
+### Field Rendering Examples
+
+**Text Input**:
+```html
+<input 
+  type="text" 
+  id="{{ field.form_property }}" 
+  name="{{ field.form_property }}"
+  class="field-input"
+  {{ " required" if field.required }}
+  placeholder="{{ field.placeholder }}">
+```
+
+**Dropdown**:
+```html
+<select id="{{ field.form_property }}" name="{{ field.form_property }}">
+  <option value="">Select an option</option>
+  {% for choice in field.choices %}
+  <option value="{{ choice.value }}">{{ choice.text }}</option>
+  {% endfor %}
+</select>
+```
+
+**Radio Group**:
+```html
+<fieldset>
+  <legend>{{ field.field_label }}</legend>
+  <div class="field-choices">
+    {% for choice in field.choices %}
+    <label class="choice-label">
+      <input type="radio" name="{{ field.form_property }}" value="{{ choice.value }}">
+      <span>{{ choice.text }}</span>
+    </label>
+    {% endfor %}
+  </div>
+</fieldset>
+```
+
+## Generator: module.css
+
+**File**: [frontend/src/utils/moduleGenerators/moduleCssGenerator.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/utils/moduleCssGenerator.ts)
+
+Generates the CSS styles for the form.
+
+### Key Features
+
+- **Modern CSS** - Flexbox and Grid layout
+- **Responsive design** - Mobile-first approach
+- **Accessibility** - Focus indicators and ARIA states
+- **Customizable** - CSS custom properties for theming
+- **Isolated styles** - BEM-like naming convention
+
+### Style Categories
+
+1. **Layout**:
+   - Container max-width and padding
+   - Tab navigation layout
+   - Form panel layout
+   - Field group grid (2 or 3 columns)
+
+2. **Typography**:
+   - Font family and sizes
+   - Label styles
+   - Required indicator
+   - Error messages
+
+3. **Form Controls**:
+   - Input fields (text, email, tel)
+   - Select dropdowns
+   - Textareas
+   - Radio buttons and checkboxes
+
+4. **Interactive States**:
+   - Focus states
+   - Hover states
+   - Active/selected states
+   - Disabled states
+   - Error states
+
+5. **Buttons**:
+   - Primary (submit/next)
+   - Secondary (back)
+   - Hover effects
+   - Disabled state
+
+### Example Styles
+
+```css
+/* Tab navigation */
+.multistep-form__tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 32px;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.multistep-form__tabs-item[aria-selected="true"] {
+  color: #0c63ff;
+  border-bottom-color: #0c63ff;
+  font-weight: 600;
+}
+
+/* Field groups - responsive grid */
+.field-group--grid {
+  display: grid;
+  gap: 16px;
+}
+
+.field-group--cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.field-group--cols-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 640px) {
+  .field-group--grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Input fields */
+.field-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: #0c63ff;
+  box-shadow: 0 0 0 3px rgba(12, 99, 255, 0.1);
+}
+
+.field-input[aria-invalid="true"] {
+  border-color: #ef4444;
+}
+```
+
+## Generator: module.js
+
+**File**: [frontend/src/utils/moduleGenerators/moduleJsGenerator.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/utils/moduleGenerators/moduleJsGenerator.ts)
+
+Generates the JavaScript for multi-step navigation, validation, and HubSpot form integration.
+
+### Key Features
+
+1. **Multi-step navigation**:
+   - Next/Previous buttons
+   - Step validation before navigation
+   - Tab click navigation
+   - Keyboard navigation (arrow keys)
+
+2. **Form validation**:
+   - Required field validation
+   - Email format validation
+   - Phone number format validation
+   - Custom error messages
+   - Real-time validation on blur
+
+3. **HubSpot integration**:
+   - Syncs data to hidden HubSpot form
+   - Submits to HubSpot on final step
+   - Handles form callbacks
+
+4. **Accessibility**:
+   - ARIA attributes management
+   - Keyboard navigation
+   - Focus management
+   - Screen reader support
+
+### Core Functions
+
+**Validation**:
+
+```javascript
+const isValidEmail = (val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+const isValidPhone = (val) => /^[\+]?[(]?[0-9]{1,3}[)]?[-\s\.]?[0-9]{1,4}[-\s\.]?[0-9]{1,4}[-\s\.]?[0-9]{1,9}$/.test(val);
+
+const validateField = (field) => {
+  const val = field.value.trim();
+  
+  // Required check
+  if (val === '' && field.required) {
+    return { isValid: false, message: 'This field is required.' };
+  }
+  
+  // Email validation
+  if (field.type === 'email' && val !== '' && !isValidEmail(val)) {
+    return { isValid: false, message: 'Please provide a valid email address.' };
+  }
+  
+  // Phone validation
+  if (field.type === 'tel' && val !== '' && !isValidPhone(val)) {
+    return { isValid: false, message: 'Please provide a valid phone number.' };
+  }
+  
+  return { isValid: true };
+};
+```
+
+**Step Validation**:
+
+```javascript
+const validateStep = (stepIndex) => {
+  const panel = tabPanels[stepIndex];
+  const fields = panel.querySelectorAll('input, select, textarea, fieldset');
+  const invalidFields = [...fields].filter((field) => !isValid(field));
+  
+  return new Promise((resolve, reject) => {
+    if (invalidFields.length === 0) {
+      resolve();
+    } else {
+      reject(invalidFields);
+    }
+  });
+};
+```
+
+**Navigation**:
+
+```javascript
+function activateTab(index) {
+  // Deactivate all tabs
+  tabItems.forEach((tab) => {
+    tab.setAttribute('aria-selected', 'false');
+    tab.setAttribute('tabindex', '-1');
+  });
+  tabPanels.forEach((panel) => {
+    panel.setAttribute('hidden', '');
+  });
+  
+  // Activate target tab
+  currentStep = index;
+  tabItems[index].setAttribute('aria-selected', 'true');
+  tabItems[index].removeAttribute('tabindex');
+  tabPanels[index].removeAttribute('hidden');
+  
+  // Scroll to top
+  multistepForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+```
+
+**HubSpot Form Sync**:
+
+```javascript
+function handlePrefill() {
+  const hsForm = document.querySelector('.multistep-form__hs-form');
+  if (!hsForm) return;
+  
+  const formFields = document.querySelectorAll('.multistep-form__form input, select, textarea');
+  
+  formFields.forEach((field) => {
+    if (!field.name) return;
+    
+    const hsInputs = hsForm.querySelectorAll(`[name="${field.name}"]`);
+    
+    hsInputs.forEach((hsInput) => {
+      if (field.type === 'checkbox' || field.type === 'radio') {
+        if (hsInput.value === field.value) {
+          hsInput.checked = field.checked;
+        }
+      } else {
+        hsInput.value = field.value;
+      }
+      
+      // Trigger change event
+      hsInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  });
+}
+```
+
+## Usage Example
+
+In the frontend App component:
+
+```tsx
+import { generateModule, downloadModule } from './utils/exportModule';
+
+function App() {
+  const [generatedModule, setGeneratedModule] = useState<Blob | null>(null);
+  
+  const handleGenerateModule = async () => {
+    if (!schema || !layout) return;
+    
+    try {
+      const blob = await generateModule(schema, layout);
+      setGeneratedModule(blob);
+    } catch (error) {
+      console.error('Failed to generate module:', error);
+    }
+  };
+  
+  const handleDownloadModule = () => {
+    if (!generatedModule || !schema) return;
+    downloadModule(generatedModule, schema.name);
+  };
+  
+  return (
+    <div>
+      <button onClick={handleGenerateModule}>Generate Module</button>
+      {generatedModule && (
+        <button onClick={handleDownloadModule}>Download Module</button>
+      )}
+    </div>
+  );
+}
+```
+
+## Output Structure
+
+The generated ZIP file has this structure:
+
+```
+contact-form.zip
+└── contact-form.module/
+    ├── fields.json      (Module field definitions)
+    ├── module.html      (HubL template)
+    ├── module.css       (Styles)
+    ├── module.js        (JavaScript logic)
+    └── meta.json        (Module metadata)
+```
+
+## Installing in HubSpot
+
+1. Download the generated ZIP file
+2. Go to HubSpot Design Manager
+3. Navigate to File > Upload Files
+4. Upload the ZIP file
+5. Extract the module
+6. Use the module in pages or templates
+
+## Related Documentation
+
+- [Architecture Overview](/architecture/overview)
+- [Frontend Architecture](/architecture/frontend)
+- [Backend Architecture](/architecture/backend)

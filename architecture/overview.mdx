@@ -1,0 +1,262 @@
+---
+title: 'Architecture Overview'
+description: 'High-level overview of the HubSpot Form Builder architecture, technology stack, and key design decisions'
+---
+
+## Introduction
+
+The HubSpot Form Builder is a full-stack web application that integrates with HubSpot to allow users to create and customize multi-step forms without code. The application fetches forms from HubSpot, provides a visual drag-and-drop editor, and exports customized forms as HubSpot CMS modules.
+
+## System Architecture
+
+The application follows a **monorepo architecture** using npm workspaces with three main packages:
+
+```
+main/
+├── frontend/          # Vite + React 18 + TypeScript (port 5174)
+├── server/            # Express + TypeScript (port 3001)
+└── shared/            # Shared TypeScript types
+```
+
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     FRONTEND (React+Vite)                   │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  App.tsx                                                     │
+│  ├─ HubSpotConnect                                           │
+│  │  └─ useHubSpotForms hook                                 │
+│  │     └─ POST /oauth/hubspot/install (redirect)          │
+│  │     └─ GET /oauth/hubspot/status (check connection)    │
+│  │                                                           │
+│  ├─ FormSelector                                            │
+│  │  └─ useHubSpotForms hook                                │
+│  │     └─ GET /api/forms (fetch list)                      │
+│  │                                                           │
+│  ├─ LayoutBuilder (Drag & Drop)                            │
+│  │  ├─ @dnd-kit for drag and drop                         │
+│  │  └─ Zustand store (layout state)                       │
+│  │                                                           │
+│  ├─ PreviewPanel                                            │
+│  │  └─ Shadow DOM isolation                                │
+│  │                                                           │
+│  └─ Module Exporter                                         │
+│     └─ Generates ZIP with module files                     │
+│                                                               │
+└─────────────────────────────────────────────────────────────┘
+                             ↕ HTTP
+┌─────────────────────────────────────────────────────────────┐
+│                  BACKEND (Express+Node)                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  index.ts (Express server)                                  │
+│  ├─ CORS + middleware                                       │
+│  ├─ OAuth Router → /oauth                                   │
+│  │  └─ GET /hubspot/install                                 │
+│  │  └─ GET /hubspot/callback                               │
+│  │  └─ GET /hubspot/status                                 │
+│  │  └─ POST /hubspot/logout                                │
+│  │  └─ tokenStore (in-memory)                              │
+│  │                                                           │
+│  └─ Forms Router → /api                                    │
+│     └─ GET /forms                                           │
+│     └─ GET /forms/:formId                                  │
+│        └─ Fetch https://api.hubapi.com/marketing/v3/forms │
+│                                                               │
+└─────────────────────────────────────────────────────────────┘
+                             ↕ HTTPS
+┌─────────────────────────────────────────────────────────────┐
+│              HUBSPOT APIs                                    │
+├─────────────────────────────────────────────────────────────┤
+│  ├─ OAuth endpoint: /oauth/v1/authorize                     │
+│  └─ Forms API: /marketing/v3/forms                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Technology Stack
+
+### Frontend
+
+| Technology | Purpose |
+|------------|----------|
+| **React 18.3** | UI framework |
+| **TypeScript 5.5** | Type safety |
+| **Vite 5.4** | Build tool and dev server |
+| **Zustand 4.5** | State management |
+| **@dnd-kit** | Drag and drop library |
+| **JSZip 3.10** | Module export (ZIP generation) |
+| **react-zoom-pan-pinch 3.7** | Canvas zoom controls |
+
+### Backend
+
+| Technology | Purpose |
+|------------|----------|
+| **Node.js** | Runtime environment |
+| **Express 4.19** | Web server framework |
+| **TypeScript 5.5** | Type safety |
+| **CORS** | Cross-origin resource sharing |
+| **dotenv** | Environment configuration |
+
+### Development Tools
+
+- **ESLint** - Code linting
+- **Prettier** - Code formatting
+- **tsx** - TypeScript execution for development
+- **npm workspaces** - Monorepo management
+
+## Data Flow
+
+The application follows a unidirectional data flow:
+
+1. **User Authentication**: User connects to HubSpot via OAuth 2.0
+2. **Form Fetching**: Frontend fetches forms list from backend
+3. **Schema Loading**: Backend normalizes HubSpot form data to internal schema
+4. **Layout Editing**: User modifies layout using drag-and-drop
+5. **State Management**: Zustand store maintains layout state
+6. **Preview**: Shadow DOM renders live preview
+7. **Export**: Module generators create HubSpot CMS module files
+8. **Download**: User downloads ZIP file
+
+## Key Architectural Decisions
+
+### 1. Monorepo with npm Workspaces
+
+**Why**: Simplifies dependency management and type sharing between frontend and backend.
+
+```json
+// main/package.json
+{
+  "workspaces": ["frontend", "server", "shared"]
+}
+```
+
+### 2. @dnd-kit for Drag and Drop
+
+**Why**: Modern, accessible, and performant drag-and-drop library with excellent TypeScript support.
+
+- Supports complex drag operations (fields, rows, steps)
+- Provides collision detection and sorting strategies
+- Accessible by default (keyboard navigation)
+
+See: [frontend/src/hooks/useLayoutDnd.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/hooks/useLayoutDnd.ts)
+
+### 3. Zustand for State Management
+
+**Why**: Lightweight, simple API, and excellent TypeScript support compared to Redux.
+
+- No boilerplate
+- Hook-based API
+- Easy to test
+- Supports immer-like updates
+
+See: [frontend/src/hooks/useLayoutStore.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/hooks/useLayoutStore.ts)
+
+### 4. OAuth 2.0 with Server-Side Token Storage
+
+**Why**: Tokens are stored on the server (not in browser) for security.
+
+- **Development**: In-memory Map (tokenStore)
+- **Production**: Should use encrypted database storage
+
+See: [server/src/oauth.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/server/src/oauth.ts)
+
+### 5. Shadow DOM for Preview Isolation
+
+**Why**: Prevents style conflicts between editor UI and form preview.
+
+- Complete CSS isolation
+- Accurate preview of exported module
+- No style leakage
+
+See: [frontend/src/components/PreviewPanel.tsx](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/frontend/src/components/PreviewPanel.tsx)
+
+### 6. Shared TypeScript Types
+
+**Why**: Single source of truth for data structures used across frontend and backend.
+
+```typescript
+// shared/src/index.ts
+export type FormSchema = {
+  id: string;
+  name: string;
+  fields: FieldSchema[];
+};
+
+export type LayoutState = {
+  mode: 'one-step' | 'multi-step';
+  steps: Step[];
+};
+```
+
+See: [shared/src/index.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/shared/src/index.ts)
+
+## Workspace Structure
+
+```
+main/
+├── frontend/
+│   ├── src/
+│   │   ├── components/       # React components
+│   │   ├── hooks/            # Custom React hooks
+│   │   ├── utils/            # Utilities & generators
+│   │   ├── App.tsx           # Main app component
+│   │   └── main.tsx          # Entry point
+│   ├── package.json
+│   └── vite.config.ts
+│
+├── server/
+│   ├── src/
+│   │   ├── index.ts          # Express app setup
+│   │   ├── oauth.ts          # OAuth routes
+│   │   └── forms.ts          # Forms API routes
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── shared/
+│   ├── src/
+│   │   └── index.ts          # Shared TypeScript types
+│   └── package.json
+│
+└── package.json              # Root workspace config
+```
+
+## Security Considerations
+
+✅ **Implemented:**
+- Tokens stored on server (not in browser)
+- CORS configured with origin whitelist
+- State validation in OAuth callback
+- HTTPS required for HubSpot API calls
+
+⚠️ **TODO for Production:**
+- Token refresh in background
+- Database storage for tokens (encrypted)
+- Rate limiting on API endpoints
+- Input validation and sanitization
+- CSRF protection
+- Session timeout
+
+## Performance Optimizations
+
+- **Lazy loading**: Components loaded on demand
+- **Memoization**: React components memoized where appropriate
+- **Debouncing**: Preview updates debounced
+- **Efficient drag-and-drop**: @dnd-kit uses requestAnimationFrame
+- **Shadow DOM**: Prevents style recalculation
+- **ZIP compression**: Module exports use DEFLATE compression
+
+## Development Workflow
+
+1. **Install dependencies**: `npm install` (from main/)
+2. **Build shared types**: `npm run build -w shared`
+3. **Start backend**: `npm run dev -w server`
+4. **Start frontend**: `npm run dev -w frontend`
+5. **Access app**: http://localhost:5174
+
+## Related Documentation
+
+- [Frontend Architecture](/architecture/frontend)
+- [Backend Architecture](/architecture/backend)
+- [Module Generators](/architecture/module-generators)

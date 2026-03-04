@@ -1,0 +1,568 @@
+---
+title: Drag and Drop Interface
+description: Master the drag-and-drop system for creating custom form layouts
+---
+
+The Form Builder uses a powerful drag-and-drop system powered by [@dnd-kit](https://dndkit.com/) to let you visually organize form fields. This guide explains all the drag-and-drop interactions available.
+
+## Overview
+
+The drag-and-drop interface allows you to:
+
+- **Drag fields from the palette** to add them to your layout
+- **Reorder fields** within the canvas by dragging
+- **Combine fields into rows** (up to 3 per row)
+- **Create new rows** by dropping fields above or below existing ones
+- **Move fields between steps** in multi-step forms
+
+## Interface Components
+
+The drag-and-drop system has three main areas:
+
+### 1. The Palette (Left Sidebar)
+
+Location: **"Campos detectados"** section in the sidebar
+
+**What it shows**: Form fields that are NOT currently in the canvas
+
+```
+┌─────────────────────────┐
+│ Campos detectados       │
+├─────────────────────────┤
+│ □ First Name            │  ← Hover to see grab cursor
+│ □ Phone Number ⭐ Req.  │  ← Green badge = Required
+│ □ Company               │
+└─────────────────────────┘
+```
+
+**Visual indicators**:
+- **Underline on hover**: Field is draggable
+- **Green "Requerido" badge**: Field is required
+- **Grab cursor** (`cursor: grab`): Ready to drag
+- **Grabbing cursor** (`cursor: grabbing`): Currently dragging
+
+See `Sidebar.tsx:32-48` and `index.css` for palette styling.
+
+### 2. The Canvas (Center)
+
+Location: Main editing area showing your form layout
+
+**What it shows**: All fields currently in your layout, organized by steps and rows
+
+```
+┌─────────────────────────────┐
+│ Step 1: Personal Info       │  ← Step header
+├─────────────────────────────┤
+│  [First Name]  [Last Name]  │  ← Row 1 (2 fields)
+│  [Email]                    │  ← Row 2 (1 field)
+│                             │  ← Drop zone
+└─────────────────────────────┘
+```
+
+**Visual indicators**:
+- **Drag handle** (`⋮⋮`): Click and hold to drag a field
+- **Drop indicators**: Blue lines show where field will be placed
+- **Semi-transparent**: Field being dragged
+- **Highlighted zones**: Valid drop targets
+
+### 3. The Drag Overlay
+
+Location: Floats under your cursor while dragging
+
+**What it shows**: A preview of the field you're dragging
+
+Implemented in `App.tsx:252-261`.
+
+## Drop Zones Explained
+
+When dragging a field over an existing field in the canvas, you can drop in three positions:
+
+### Top Zone (20% of field height)
+
+**Action**: Creates a NEW ROW **above** the target field
+
+```
+     ↓ Drop here
+┌─────────────────┐
+│  [New Field]    │  ← New row created
+├─────────────────┤
+│  [Target Field] │  ← Existing field
+└─────────────────┘
+```
+
+**Visual**: Blue line appears above the target field
+
+### Center Zone (60% of field height)
+
+**Action**: **Combines** with target field in the SAME ROW (max 3 fields per row)
+
+```
+┌─────────────────────────────┐
+│  [Target]  [New Field]      │  ← Combined in same row
+└─────────────────────────────┘
+```
+
+**Visual**: Target field gets highlighted
+
+**Side positioning**:
+- Drop on **left half** of target → inserts to the left
+- Drop on **right half** of target → inserts to the right
+
+**Validation**: If the row already has 3 fields, the drop is rejected (useLayoutDnd.ts:343, moveFieldWithinStep:519-524)
+
+### Bottom Zone (20% of field height)
+
+**Action**: Creates a NEW ROW **below** the target field
+
+```
+┌─────────────────┐
+│  [Target Field] │  ← Existing field
+├─────────────────┤
+│  [New Field]    │  ← New row created
+└─────────────────┘
+     ↑ Drop here
+```
+
+**Visual**: Blue line appears below the target field
+
+### Step Drop Zone
+
+**Action**: Drops field at the **end** of a step (creates new row)
+
+```
+┌─────────────────────────────┐
+│ Step 1                      │
+├─────────────────────────────┤
+│  [Existing Field 1]         │
+│  [Existing Field 2]         │
+│  ← Drop anywhere in empty   │  ← Step drop zone
+│     space to add at end     │
+└─────────────────────────────┘
+```
+
+**Visual**: Entire step highlights when dragging over it
+
+Implemented in `useLayoutDnd.ts:132-136, 240-252`.
+
+## Dragging from Palette to Canvas
+
+Adding fields from the palette is the primary way to build your layout.
+
+<Steps>
+  <Step title="Locate Available Fields">
+    Scroll to the **"Campos detectados"** section in the left sidebar.
+
+    You'll see all fields that aren't currently in your canvas.
+  </Step>
+
+  <Step title="Start Dragging">
+    Click and hold on any field in the palette.
+
+    The cursor changes to a grabbing hand, and a preview appears under your cursor.
+  </Step>
+
+  <Step title="Position Over Target">
+    Drag over the canvas to your desired location.
+
+    Drop zones will appear as you hover over existing fields or empty step areas.
+  </Step>
+
+  <Step title="Drop the Field">
+    Release the mouse button when you see the desired drop indicator.
+
+    The field is added to your layout and disappears from the palette.
+  </Step>
+</Steps>
+
+### Drop Options from Palette
+
+<Accordion title="Option A: Create New Row">
+  Drop on the **top** or **bottom** zone of any existing field.
+
+  ```typescript
+  // Implementation
+  addFieldToNewRow(stepId, fieldId, insertAtIndex)
+  ```
+
+  The field is placed in a new row at the specified position (useLayoutStore.ts:287-323).
+</Accordion>
+
+<Accordion title="Option B: Add to Existing Row">
+  Drop in the **center** zone of an existing field.
+
+  ```typescript
+  // Implementation
+  addFieldToRow(stepId, fieldId, rowId, insertAtIndex)
+  ```
+
+  The field is added to the same row, up to a maximum of 3 fields (useLayoutStore.ts:324-364).
+</Accordion>
+
+<Accordion title="Option C: Drop on Step Zone">
+  Drop anywhere in the empty space of a step.
+
+  ```typescript
+  // Implementation
+  addFieldToNewRow(stepId, fieldId) // No insertAtIndex = end of step
+  ```
+
+  The field is added in a new row at the end of that step (useLayoutDnd.ts:249-251).
+</Accordion>
+
+<Tip>
+  All palette drags are identified by the prefix `palette:` in their drag ID (Sidebar.tsx:34, useLayoutDnd.ts:31-33).
+</Tip>
+
+## Reordering Fields Within Canvas
+
+Once fields are in the canvas, you can reorganize them.
+
+### Moving Within Same Step
+
+<Steps>
+  <Step title="Grab the Field">
+    Click and hold the drag handle (`⋮⋮`) on the field you want to move.
+  </Step>
+
+  <Step title="Drag to New Position">
+    Move your cursor over another field in the same step.
+
+    Drop zones appear: top, center, or bottom.
+  </Step>
+
+  <Step title="Drop">
+    Release when you see the desired drop indicator.
+
+    The field moves and the layout updates.
+  </Step>
+</Steps>
+
+**Behind the scenes**:
+- **Same row combination**: `moveFieldWithinStep()` combines fields if dropped in center zone
+- **New row creation**: `moveFieldToNewRow()` creates a new row if dropped on top/bottom zones
+
+See `useLayoutDnd.ts:272-308, 475-550`.
+
+### Moving Between Steps
+
+In multi-step forms, you can move fields across steps:
+
+<Steps>
+  <Step title="Drag the Field">
+    Grab a field from one step using its drag handle.
+  </Step>
+
+  <Step title="Drop on Different Step">
+    Drag over a different step and drop in the step zone (empty space).
+
+    The field moves to the new step in a new row at the end.
+  </Step>
+</Steps>
+
+**Implementation**: `moveFieldBetweenSteps()` in `useLayoutStore.ts:164-204`.
+
+<Warning>
+  Currently, you can only move fields between steps using the step drop zone, not by dropping directly on fields in other steps (useLayoutDnd.ts:156-161).
+</Warning>
+
+## Creating Multi-Column Rows
+
+Rows can contain up to 3 fields for compact layouts.
+
+### Adding a Second Field to a Row
+
+<Steps>
+  <Step title="Find a Single-Field Row">
+    Locate a row with only one field.
+  </Step>
+
+  <Step title="Drag Another Field Over It">
+    Drag a field from the palette or another row.
+
+    Position your cursor over the **center zone** of the target field.
+  </Step>
+
+  <Step title="Choose Left or Right">
+    - **Left half**: New field inserts to the left
+    - **Right half**: New field inserts to the right
+  </Step>
+
+  <Step title="Drop">
+    Release the mouse.
+
+    Both fields now share the same row.
+  </Step>
+</Steps>
+
+### Adding a Third Field to a Row
+
+Repeat the same process to add a third field.
+
+**Result**: Three fields in one row, responsive and evenly spaced.
+
+### Maximum Fields Per Row
+
+You **cannot** add more than 3 fields to a row:
+
+```typescript
+// Validation in useLayoutStore.ts:343
+if (targetRow.fields.length >= 3) {
+  return step; // Drop rejected
+}
+```
+
+If you try to drop a 4th field in the center zone, nothing happens.
+
+<Tip>
+  For best mobile responsiveness, stick to 2 fields per row for most layouts. Use 3-field rows sparingly for compact info like city/state/zip.
+</Tip>
+
+## Removing Fields
+
+Remove fields to simplify your form or experiment with different layouts.
+
+<Steps>
+  <Step title="Find the Field">
+    Locate the field you want to remove in the canvas.
+  </Step>
+
+  <Step title="Click the Delete Button">
+    Click the **×** button on the field.
+
+    **Note**: Required fields don't have a delete button.
+  </Step>
+
+  <Step title="Field Returns to Palette">
+    The field disappears from the canvas.
+
+    It automatically appears in the **"Campos detectados"** palette.
+  </Step>
+
+  <Step title="Re-add If Needed">
+    You can drag the field back from the palette anytime.
+  </Step>
+</Steps>
+
+**Implementation**: `removeFieldFromStep()` in `useLayoutStore.ts:238-265`.
+
+<Note>
+  When a field is removed, its row is also deleted if it becomes empty (useLayoutStore.ts:246-251).
+</Note>
+
+## Step Management
+
+Steps themselves can be reordered (though this is less common).
+
+### Reordering Steps
+
+The step header acts as a drag handle:
+
+1. Click and hold the step header (not the title input)
+2. Drag the entire step up or down
+3. Drop when you see the desired position
+
+**Implementation**: `reorderSteps()` in `useLayoutStore.ts:149-163`.
+
+### Deleting Steps
+
+See the [Building Forms Guide](/guides/building-forms#removing-steps) for details.
+
+## Visual Feedback and Indicators
+
+### Cursor States
+
+| State | Cursor | Meaning |
+|-------|--------|----------|
+| Hovering over palette field | `grab` | Field is draggable |
+| Dragging field | `grabbing` | Currently dragging |
+| Over valid drop zone | `default` | Can drop here |
+| Over invalid target | `not-allowed` | Cannot drop |
+
+### Drop Position Classes
+
+The canvas applies CSS classes to show drop positions:
+
+```css
+.drop-before::before {
+  /* Blue line above field */
+  border-top: 2px solid #3b82f6;
+}
+
+.drop-after::after {
+  /* Blue line below field */
+  border-bottom: 2px solid #3b82f6;
+}
+
+.drop-inside {
+  /* Highlight entire field */
+  background-color: rgba(59, 130, 246, 0.1);
+}
+```
+
+See `LayoutBuilder.tsx:157` and `index.css` for styling.
+
+### Drag Overlay
+
+While dragging, a semi-transparent preview follows your cursor showing:
+- Field label
+- Required badge (if applicable)
+
+This provides visual confirmation of what you're dragging.
+
+## Keyboard and Mouse Interactions
+
+### Mouse Actions
+
+| Action | Result |
+|--------|--------|
+| Click drag handle (`⋮⋮`) + hold | Start dragging field |
+| Drag over field (top 20%) | Show "drop above" indicator |
+| Drag over field (center 60%) | Show "combine" indicator |
+| Drag over field (bottom 20%) | Show "drop below" indicator |
+| Release mouse button | Complete the drop |
+| Click `×` on field | Remove field (non-required only) |
+
+### Activation Constraint
+
+A drag must move **8 pixels** before activating:
+
+```typescript
+// useLayoutDnd.ts:55-60
+useSensor(PointerSensor, {
+  activationConstraint: {
+    distance: 8,
+  },
+})
+```
+
+This prevents accidental drags when clicking fields.
+
+### Touch Support
+
+The drag-and-drop system supports touch devices:
+- Long press to start dragging
+- Drag with finger
+- Release to drop
+
+<Warning>
+  Touch support may vary by device. Test thoroughly on tablets if targeting mobile users.
+</Warning>
+
+## Advanced Techniques
+
+### Quick Field Removal and Re-addition
+
+**Scenario**: You want to temporarily remove a field to try different layouts.
+
+1. Click `×` to remove the field
+2. It appears in the palette
+3. Experiment with other fields
+4. Drag the removed field back from the palette when ready
+
+**Use case**: Testing whether a field works better in step 1 or step 2.
+
+### Building Row-First Layouts
+
+**Technique**: Create all your rows first, then fill them.
+
+1. Drag one field from palette to create row 1
+2. Drag another field, drop **below** to create row 2
+3. Repeat for all rows
+4. Go back and combine fields into rows as needed
+
+**Advantage**: Gives you a clear skeleton before optimizing spacing.
+
+### Reorganizing Entire Steps
+
+**Scenario**: You want to swap step order.
+
+**Option 1 - Reorder Steps**:
+1. Drag step header to new position
+2. All fields move with the step
+
+**Option 2 - Move Fields**:
+1. Drag each field from step 1 to step 2 drop zone
+2. Repeat until all fields are moved
+3. Delete empty step
+
+## Troubleshooting
+
+<Accordion title="Field won't drop">
+  **Possible causes**:
+  - Target row already has 3 fields (max limit)
+  - Field is already in the canvas (no duplicates allowed)
+  - Trying to drop on field in different step (must use step drop zone)
+
+  **Solution**: Check the target row's field count and try a different drop zone.
+</Accordion>
+
+<Accordion title="Drag doesn't start">
+  **Possible causes**:
+  - Not clicking the drag handle (`⋮⋮`) on canvas fields
+  - Not holding click long enough (8px activation distance)
+  - JavaScript error in console
+
+  **Solution**: Check browser console (F12) for errors. Ensure you're clicking and holding on draggable elements.
+</Accordion>
+
+<Accordion title="Field appears in canvas AND palette">
+  **Cause**: State synchronization bug in `collectFieldNames()`.
+
+  **Solution**: Refresh the page. This shouldn't happen but if it does, report the issue.
+</Accordion>
+
+<Accordion title="Drop zones not appearing">
+  **Possible causes**:
+  - CSS not loaded properly
+  - DragOver handler not firing
+
+  **Solution**: Check that `index.css` is loaded and `useLayoutDnd.ts:105-208` is working.
+</Accordion>
+
+## Performance Considerations
+
+### Large Forms
+
+For forms with 20+ fields:
+- Palette rendering is efficient (no virtualization needed)
+- Canvas updates are optimized via Zustand
+- Drag operations are smooth due to @dnd-kit's performance
+
+### Reducing Layout Shifts
+
+- Drop indicators use `::before` and `::after` pseudo-elements to avoid layout reflow
+- Drag overlay uses fixed positioning
+- Field dimensions are preserved during drag
+
+## Tips for Efficient Form Building
+
+<Tip>
+  **Plan before dragging**: Sketch your ideal layout on paper first. This saves time rearranging fields.
+</Tip>
+
+<Tip>
+  **Use step drop zones**: When moving fields between steps, use the empty space drop zone rather than dropping on specific fields.
+</Tip>
+
+<Tip>
+  **Preview frequently**: Switch to Preview tab often to see how your layout looks to end users.
+</Tip>
+
+<Tip>
+  **Build mobile-first**: Use 1-2 fields per row for better mobile experience, even if it means more vertical scrolling on desktop.
+</Tip>
+
+<Tip>
+  **Group logically, not visually**: Prioritize grouping related information over creating visually balanced rows.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building Forms" icon="screwdriver-wrench" href="/guides/building-forms">
+    Learn the complete form building workflow
+  </Card>
+  <Card title="Exporting Modules" icon="download" href="/guides/exporting-modules">
+    Export your layout as a HubSpot module
+  </Card>
+</CardGroup>

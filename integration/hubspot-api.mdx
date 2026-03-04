@@ -1,0 +1,628 @@
+---
+title: HubSpot API Reference
+description: API endpoints and implementation details for HubSpot integration
+---
+
+## Overview
+
+The HubSpot Form Builder uses the HubSpot Marketing API v3 to fetch forms and field schemas. This reference documents all API endpoints used by the application.
+
+## Base URL
+
+All API requests are made to:
+
+```
+https://api.hubapi.com
+```
+
+## Authentication
+
+All requests use OAuth 2.0 Bearer token authentication:
+
+```typescript
+headers: {
+  'Authorization': `Bearer ${accessToken}`,
+  'Content-Type': 'application/json'
+}
+```
+
+Tokens are obtained through the [OAuth flow](/integration/connecting) and stored in the token store.
+
+## Internal API Endpoints
+
+The Form Builder exposes these API endpoints to the frontend:
+
+### GET /oauth/hubspot/status
+
+Check if the application is connected to HubSpot.
+
+**Request:**
+```bash
+GET http://localhost:3001/oauth/hubspot/status
+```
+
+**Response:**
+```json
+{
+  "connected": true
+}
+```
+
+**Implementation:**
+```typescript
+// From oauth.ts:118-121
+router.get('/hubspot/status', (_req: Request, res: Response) => {
+  const hasAny = tokenStore.size > 0;
+  res.json({ connected: hasAny });
+});
+```
+
+**Status Codes:**
+- `200 OK` - Status check successful
+
+---
+
+### POST /oauth/hubspot/logout
+
+Disconnect from HubSpot and clear stored tokens.
+
+**Request:**
+```bash
+POST http://localhost:3001/oauth/hubspot/logout
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Session closed successfully"
+}
+```
+
+**Implementation:**
+```typescript
+// From oauth.ts:123-126
+router.post('/hubspot/logout', (_req: Request, res: Response) => {
+  tokenStore.clear();
+  res.json({ success: true, message: 'Session closed successfully' });
+});
+```
+
+**Status Codes:**
+- `200 OK` - Logout successful
+
+---
+
+### GET /api/forms
+
+Fetch all forms from the connected HubSpot account.
+
+**Request:**
+```bash
+GET http://localhost:3001/api/forms
+```
+
+**Response:**
+```json
+{
+  "forms": [
+    {
+      "id": "12345678-abcd-1234-abcd-123456789abc",
+      "name": "Contact Us Form",
+      "createdAt": 1234567890000,
+      "updatedAt": 1234567890000
+    },
+    {
+      "id": "87654321-dcba-4321-dcba-987654321cba",
+      "name": "Newsletter Signup",
+      "createdAt": 1234567890000,
+      "updatedAt": 1234567890000
+    }
+  ]
+}
+```
+
+**Implementation:**
+
+This endpoint calls the HubSpot Marketing API v3:
+
+```typescript
+// From forms.ts:126-162
+router.get('/forms', async (_req: Request, res: Response) => {
+  try {
+    if (tokenStore.size === 0) {
+      return res.status(401).json({ error: 'Not connected to HubSpot' });
+    }
+
+    const accessToken = getAccessToken();
+    if (!accessToken) {
+      return res.status(401).json({ error: 'No valid token found' });
+    }
+
+    // Try actual Forms API endpoint
+    const actualFormsRes = await fetch('https://api.hubapi.com/marketing/v3/forms', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!actualFormsRes.ok) {
+      const errorText = await actualFormsRes.text();
+      return res.status(actualFormsRes.status).json({
+        error: 'Failed to fetch forms from HubSpot',
+        details: errorText,
+      });
+    }
+
+    const formsJson = await actualFormsRes.json();
+    const forms: HubSpotForm[] =
+      formsJson.results?.map((form: Record<string, unknown>) => ({
+        id: String(form.id ?? ''),
+        name: String(form.name ?? 'Unnamed Form'),
+        createdAt: Number(form.createdAt ?? 0),
+        updatedAt: Number(form.updatedAt ?? 0),
+      })) || [];
+
+    return res.json({ forms });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error', details: String(err) });
+  }
+});
+```
+
+**Status Codes:**
+- `200 OK` - Forms retrieved successfully
+- `401 Unauthorized` - Not connected to HubSpot or no valid token
+- `403 Forbidden` - Missing required scopes
+- `500 Internal Server Error` - Server or HubSpot API error
+
+**HubSpot API Call:**
+```
+GET https://api.hubapi.com/marketing/v3/forms
+```
+
+<Note>
+  The response from HubSpot is normalized to include only the essential fields: id, name, createdAt, and updatedAt.
+</Note>
+
+---
+
+### GET /api/forms/:formId
+
+Fetch detailed schema for a specific form, including all fields and their configurations.
+
+**Request:**
+```bash
+GET http://localhost:3001/api/forms/12345678-abcd-1234-abcd-123456789abc
+```
+
+**Response:**
+```json
+{
+  "schema": {
+    "id": "12345678-abcd-1234-abcd-123456789abc",
+    "name": "Contact Us Form",
+    "fields": [
+      {
+        "name": "firstname",
+        "label": "First Name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "email",
+        "label": "Email Address",
+        "type": "email",
+        "required": true,
+        "validation": {
+          "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+        }
+      },
+      {
+        "name": "country",
+        "label": "Country",
+        "type": "select",
+        "required": false,
+        "options": [
+          { "label": "United States", "value": "US" },
+          { "label": "Canada", "value": "CA" },
+          { "label": "United Kingdom", "value": "UK" }
+        ]
+      }
+    ]
+  },
+  "debug": {
+    "groupCount": 2,
+    "fieldCount": 0
+  }
+}
+```
+
+**Implementation:**
+
+```typescript
+// From forms.ts:168-219
+router.get('/forms/:formId', async (req: Request, res: Response) => {
+  try {
+    if (tokenStore.size === 0) {
+      return res.status(401).json({ error: 'Not connected to HubSpot' });
+    }
+
+    const accessToken = getAccessToken();
+    if (!accessToken) {
+      return res.status(401).json({ error: 'No valid token found' });
+    }
+
+    const formId = String(req.params.formId || '').trim();
+    if (!formId) {
+      return res.status(400).json({ error: 'Missing formId' });
+    }
+
+    const formRes = await fetch(`https://api.hubapi.com/marketing/v3/forms/${formId}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!formRes.ok) {
+      const errorText = await formRes.text();
+      return res.status(formRes.status).json({
+        error: 'Failed to fetch form details from HubSpot',
+        details: errorText,
+      });
+    }
+
+    const formJson = (await formRes.json()) as HubSpotFormDetails;
+    const schema = normalizeHubSpotForm(formJson);
+
+    const groupCount = Array.isArray(formJson.formFieldGroups)
+      ? formJson.formFieldGroups.length
+      : Array.isArray(formJson.fieldGroups)
+        ? formJson.fieldGroups.length
+        : 0;
+    const fieldCount = Array.isArray(formJson.fields) ? formJson.fields.length : 0;
+
+    return res.json({
+      schema,
+      debug: {
+        groupCount,
+        fieldCount,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error', details: String(err) });
+  }
+});
+```
+
+**Status Codes:**
+- `200 OK` - Form schema retrieved successfully
+- `400 Bad Request` - Missing or invalid formId
+- `401 Unauthorized` - Not connected to HubSpot or no valid token
+- `404 Not Found` - Form doesn't exist
+- `500 Internal Server Error` - Server or HubSpot API error
+
+**HubSpot API Call:**
+```
+GET https://api.hubapi.com/marketing/v3/forms/{formId}
+```
+
+<Note>
+  The debug object provides information about the form structure for troubleshooting. GroupCount indicates field groups, while fieldCount shows top-level fields.
+</Note>
+
+---
+
+## Field Schema Normalization
+
+HubSpot forms can have varying structures. The Form Builder normalizes all fields to a consistent schema.
+
+### Field Type
+
+```typescript
+// From forms.ts:68-91
+function normalizeField(field: HubSpotField): FieldSchema | null {
+  const name = String(field.name ?? '').trim();
+  if (!name) {
+    return null;
+  }
+
+  const label = String(field.label ?? field.labelText ?? name).trim();
+  const type = String(field.type ?? field.fieldType ?? field.inputType ?? 'text').trim();
+  const required = Boolean(field.required);
+  const options = normalizeOptions(field.options ?? field.choices);
+  const validation =
+    field.validation ??
+    field.validationRules ??
+    (field.validationRegex ? { pattern: field.validationRegex } : undefined);
+
+  return {
+    name,
+    label,
+    type,
+    required,
+    options,
+    validation,
+  };
+}
+```
+
+**Normalized Schema:**
+```typescript
+type FieldSchema = {
+  name: string;           // Field identifier (e.g., "firstname")
+  label: string;          // Display label (e.g., "First Name")
+  type: string;           // Input type (e.g., "text", "email", "select")
+  required: boolean;      // Whether field is required
+  options?: FieldOption[]; // Options for select/radio/checkbox
+  validation?: object;    // Validation rules
+};
+```
+
+### Options Normalization
+
+Select, radio, and checkbox fields include options:
+
+```typescript
+// From forms.ts:49-66
+function normalizeOptions(options: HubSpotOption[] | undefined): FieldOption[] | undefined {
+  if (!options || options.length === 0) {
+    return undefined;
+  }
+
+  const normalized = options
+    .map((option) => {
+      const label = String(option.label ?? option.value ?? option.name ?? '').trim();
+      const value = String(option.value ?? option.label ?? option.name ?? '').trim();
+      if (!label || !value) {
+        return null;
+      }
+      return { label, value };
+    })
+    .filter((option): option is FieldOption => Boolean(option));
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+```
+
+HubSpot options can use `label`, `value`, or `name` properties. The normalizer handles all variations.
+
+### Form Structure Handling
+
+HubSpot forms can organize fields in different ways:
+
+```typescript
+// From forms.ts:93-124
+function normalizeHubSpotForm(form: HubSpotFormDetails): FormSchema {
+  const fields: FieldSchema[] = [];
+  const groups = Array.isArray(form.formFieldGroups)
+    ? form.formFieldGroups
+    : Array.isArray(form.fieldGroups)
+      ? form.fieldGroups
+      : [];
+
+  // Process field groups first
+  groups.forEach((group) => {
+    group.fields?.forEach((field) => {
+      const normalized = normalizeField(field);
+      if (normalized) {
+        fields.push(normalized);
+      }
+    });
+  });
+
+  // Fallback to top-level fields
+  if (fields.length === 0 && Array.isArray(form.fields)) {
+    form.fields.forEach((field) => {
+      const normalized = normalizeField(field);
+      if (normalized) {
+        fields.push(normalized);
+      }
+    });
+  }
+
+  return {
+    id: String(form.id ?? ''),
+    name: String(form.name ?? 'Unnamed Form'),
+    fields,
+  };
+}
+```
+
+The normalizer:
+1. Checks for `formFieldGroups` (newer API format)
+2. Falls back to `fieldGroups` (older format)
+3. Falls back to top-level `fields` array
+4. Flattens all fields into a single array
+
+## Error Handling
+
+### Authentication Errors
+
+**401 Unauthorized:**
+```json
+{
+  "error": "Not connected to HubSpot"
+}
+```
+
+Or:
+```json
+{
+  "error": "No valid token found"
+}
+```
+
+**Solution:** Reconnect via the [OAuth flow](/integration/connecting).
+
+### Permission Errors
+
+**403 Forbidden:**
+```json
+{
+  "error": "Failed to fetch forms from HubSpot",
+  "details": "This request requires forms scope"
+}
+```
+
+**Solution:** Verify your OAuth app has the required scopes: `forms`, `content`, `forms-uploaded-files`.
+
+### Resource Not Found
+
+**404 Not Found:**
+```json
+{
+  "error": "Failed to fetch form details from HubSpot",
+  "details": "Form not found"
+}
+```
+
+**Solution:** Verify the form ID exists in your HubSpot account.
+
+### Server Errors
+
+**500 Internal Server Error:**
+```json
+{
+  "error": "Server error",
+  "details": "Network request failed"
+}
+```
+
+**Possible causes:**
+- Network connectivity issues
+- HubSpot API downtime
+- Invalid response format
+
+## Rate Limiting
+
+<Warning>
+  HubSpot enforces rate limits on API requests. The default limit for OAuth apps is 100 requests per 10 seconds.
+</Warning>
+
+### Rate Limit Headers
+
+HubSpot includes rate limit information in response headers:
+
+```
+X-HubSpot-RateLimit-Remaining: 98
+X-HubSpot-RateLimit-Max: 100
+X-HubSpot-RateLimit-Interval-Milliseconds: 10000
+```
+
+### Rate Limit Exceeded
+
+When exceeded, HubSpot returns:
+
+**Status:** `429 Too Many Requests`
+
+**Response:**
+```json
+{
+  "status": "error",
+  "message": "You have reached your request limit for this resource.",
+  "errorType": "RATE_LIMIT"
+}
+```
+
+**Solution:**
+- Implement exponential backoff
+- Cache form data when possible
+- Reduce request frequency
+
+### Best Practices
+
+1. **Cache form lists** - Don't fetch forms on every page load
+2. **Cache form schemas** - Store field data locally after first fetch
+3. **Batch requests** - Avoid rapid sequential requests
+4. **Monitor headers** - Track remaining rate limit
+
+## CORS Configuration
+
+The server allows requests from localhost and Cloudflare tunnels:
+
+```typescript
+// From index.ts:10-24
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowedOrigins = ['http://localhost:5173'];
+
+      if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.trycloudflare.com')) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+  }),
+);
+```
+
+**Allowed origins:**
+- `http://localhost:5173` - Local development
+- `*.trycloudflare.com` - Cloudflare tunnels
+
+## Example Usage
+
+### Fetching and Displaying Forms
+
+```javascript
+// Check connection status
+const statusRes = await fetch('http://localhost:3001/oauth/hubspot/status');
+const { connected } = await statusRes.json();
+
+if (!connected) {
+  // Redirect to OAuth flow
+  window.location.href = 'http://localhost:3001/oauth/hubspot/install';
+  return;
+}
+
+// Fetch available forms
+const formsRes = await fetch('http://localhost:3001/api/forms');
+const { forms } = await formsRes.json();
+
+console.log(`Found ${forms.length} forms`);
+forms.forEach(form => {
+  console.log(`- ${form.name} (${form.id})`);
+});
+```
+
+### Loading Form Schema
+
+```javascript
+const formId = '12345678-abcd-1234-abcd-123456789abc';
+
+// Fetch form schema
+const schemaRes = await fetch(`http://localhost:3001/api/forms/${formId}`);
+const { schema, debug } = await schemaRes.json();
+
+console.log(`Form: ${schema.name}`);
+console.log(`Fields: ${schema.fields.length}`);
+console.log(`Groups: ${debug.groupCount}`);
+
+// Display required fields
+const requiredFields = schema.fields.filter(f => f.required);
+console.log('Required fields:', requiredFields.map(f => f.name));
+
+// Display select fields with options
+const selectFields = schema.fields.filter(f => f.options);
+selectFields.forEach(field => {
+  console.log(`${field.label}:`);
+  field.options.forEach(opt => {
+    console.log(`  - ${opt.label} = ${opt.value}`);
+  });
+});
+```
+
+## Next Steps
+
+<Card title="OAuth Setup" icon="shield" href="/integration/oauth-setup">
+  Configure HubSpot OAuth for secure API access
+</Card>
+
+<Card title="Connecting to HubSpot" icon="link" href="/integration/connecting">
+  Learn how to establish and manage connections
+</Card>

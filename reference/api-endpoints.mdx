@@ -1,0 +1,597 @@
+---
+title: API Reference
+description: Complete reference for all backend API endpoints in the HubSpot Form Builder
+---
+
+This page documents all server-side API endpoints available in the HubSpot Form Builder application.
+
+## Base URL
+
+All API endpoints are served from the Express server running on port 3001 by default.
+
+```
+http://localhost:3001
+```
+
+---
+
+## OAuth Endpoints
+
+Manage HubSpot OAuth authentication flow.
+
+### Initiate OAuth Flow
+
+<CodeGroup>
+```http GET /oauth/hubspot/install
+GET /oauth/hubspot/install
+```
+</CodeGroup>
+
+Redirects the user to HubSpot's OAuth authorization page.
+
+**Location**: `main/server/src/oauth.ts:46`
+
+#### Flow
+
+1. Generates random state token for CSRF protection
+2. Stores state in memory with timestamp
+3. Builds authorization URL with:
+   - `client_id` from environment
+   - `redirect_uri` from environment
+   - `scope` from environment
+   - `state` token
+4. Redirects user to HubSpot
+
+#### Environment Variables Required
+
+<ParamField path="HUBSPOT_CLIENT_ID" type="string" required>
+  HubSpot application client ID
+</ParamField>
+
+<ParamField path="HUBSPOT_REDIRECT_URI" type="string" required>
+  OAuth callback URL (must match HubSpot app settings)
+</ParamField>
+
+<ParamField path="HUBSPOT_SCOPES" type="string" required>
+  Space-separated OAuth scopes (e.g., "forms")
+</ParamField>
+
+#### Response
+
+```
+302 Redirect to https://app.hubspot.com/oauth/authorize?...
+```
+
+---
+
+### OAuth Callback
+
+<CodeGroup>
+```http GET /oauth/hubspot/callback
+GET /oauth/hubspot/callback?code=xxx&state=yyy
+```
+</CodeGroup>
+
+Handles the OAuth callback from HubSpot and exchanges authorization code for access token.
+
+**Location**: `main/server/src/oauth.ts:53`
+
+#### Query Parameters
+
+<ParamField path="code" type="string" required>
+  Authorization code from HubSpot
+</ParamField>
+
+<ParamField path="state" type="string" required>
+  CSRF protection token (must match stored state)
+</ParamField>
+
+#### Request Flow
+
+1. Validates `code` and `state` parameters
+2. Verifies state token exists in store
+3. Exchanges code for tokens via POST to `https://api.hubapi.com/oauth/v1/token`
+4. Stores tokens in memory with expiration
+5. Redirects to frontend URL or returns JSON
+
+#### Token Exchange Request
+
+```http
+POST https://api.hubapi.com/oauth/v1/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code
+&client_id=xxx
+&client_secret=xxx
+&redirect_uri=xxx
+&code=xxx
+```
+
+#### Success Response (with FRONTEND_URL)
+
+```
+302 Redirect to {FRONTEND_URL}?connected=true&portalId=123456
+```
+
+#### Success Response (without FRONTEND_URL)
+
+<ResponseField name="connected" type="boolean">
+  Always `true` on success
+</ResponseField>
+
+<ResponseField name="portalId" type="number | null">
+  HubSpot portal (account) ID
+</ResponseField>
+
+```json
+{
+  "connected": true,
+  "portalId": 123456
+}
+```
+
+#### Error Responses
+
+<ResponseField name="400" type="Bad Request">
+  Invalid or missing state/code parameters
+</ResponseField>
+
+```json
+{
+  "error": "Invalid state or code"
+}
+```
+
+<ResponseField name="500" type="Internal Server Error">
+  Token exchange failed or server error
+</ResponseField>
+
+```json
+{
+  "error": "Token exchange failed",
+  "details": "..."
+}
+```
+
+#### Token Storage
+
+Tokens are stored in an in-memory Map:
+
+```typescript
+type TokenRecord = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number; // Unix timestamp in milliseconds
+  portalId?: number;
+};
+```
+
+**Note**: Tokens are lost on server restart. For production, implement persistent storage.
+
+---
+
+### Check OAuth Status
+
+<CodeGroup>
+```http GET /oauth/hubspot/status
+GET /oauth/hubspot/status
+```
+</CodeGroup>
+
+Checks if the server has valid OAuth tokens.
+
+**Location**: `main/server/src/oauth.ts:118`
+
+#### Response
+
+<ResponseField name="connected" type="boolean">
+  Whether any OAuth tokens are stored
+</ResponseField>
+
+```json
+{
+  "connected": true
+}
+```
+
+**Note**: This only checks if tokens exist, not if they're valid or expired.
+
+---
+
+### Logout
+
+<CodeGroup>
+```http POST /oauth/hubspot/logout
+POST /oauth/hubspot/logout
+```
+</CodeGroup>
+
+Clears all stored OAuth tokens.
+
+**Location**: `main/server/src/oauth.ts:123`
+
+#### Response
+
+<ResponseField name="success" type="boolean">
+  Always `true`
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message
+</ResponseField>
+
+```json
+{
+  "success": true,
+  "message": "Session closed successfully"
+}
+```
+
+---
+
+## Forms API Endpoints
+
+Fetch HubSpot forms and their schemas.
+
+### List Forms
+
+<CodeGroup>
+```http GET /api/forms
+GET /api/forms
+```
+</CodeGroup>
+
+Retrieves all available HubSpot forms.
+
+**Location**: `main/server/src/forms.ts:126`
+
+#### Authentication
+
+Requires valid OAuth token in server's token store.
+
+#### Response
+
+<ResponseField name="forms" type="HubSpotForm[]">
+  Array of form objects
+</ResponseField>
+
+```json
+{
+  "forms": [
+    {
+      "id": "abc-123",
+      "name": "Contact Form",
+      "createdAt": 1640000000000,
+      "updatedAt": 1650000000000
+    },
+    {
+      "id": "def-456",
+      "name": "Newsletter Signup",
+      "createdAt": 1640000000000,
+      "updatedAt": 1650000000000
+    }
+  ]
+}
+```
+
+#### HubSpotForm Type
+
+<ResponseField name="id" type="string">
+  Unique form identifier
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Form display name
+</ResponseField>
+
+<ResponseField name="createdAt" type="number">
+  Creation timestamp (milliseconds)
+</ResponseField>
+
+<ResponseField name="updatedAt" type="number">
+  Last update timestamp (milliseconds)
+</ResponseField>
+
+#### Error Responses
+
+<ResponseField name="401" type="Unauthorized">
+  Not connected to HubSpot or no valid token
+</ResponseField>
+
+```json
+{
+  "error": "Not connected to HubSpot"
+}
+```
+
+<ResponseField name="500" type="Internal Server Error">
+  Failed to fetch from HubSpot API
+</ResponseField>
+
+```json
+{
+  "error": "Failed to fetch forms from HubSpot",
+  "details": "..."
+}
+```
+
+#### HubSpot API Called
+
+```http
+GET https://api.hubapi.com/marketing/v3/forms
+Authorization: Bearer {accessToken}
+Content-Type: application/json
+```
+
+---
+
+### Get Form Schema
+
+<CodeGroup>
+```http GET /api/forms/:formId
+GET /api/forms/abc-123
+```
+</CodeGroup>
+
+Retrieves detailed schema for a specific form, including all fields and their configurations.
+
+**Location**: `main/server/src/forms.ts:168`
+
+#### Path Parameters
+
+<ParamField path="formId" type="string" required>
+  The HubSpot form ID
+</ParamField>
+
+#### Authentication
+
+Requires valid OAuth token in server's token store.
+
+#### Response
+
+<ResponseField name="schema" type="FormSchema">
+  Normalized form schema
+</ResponseField>
+
+<ResponseField name="debug" type="object">
+  Debug information about the form structure
+</ResponseField>
+
+```json
+{
+  "schema": {
+    "id": "abc-123",
+    "name": "Contact Form",
+    "fields": [
+      {
+        "name": "email",
+        "label": "Email Address",
+        "type": "email",
+        "required": true,
+        "options": null,
+        "validation": null
+      },
+      {
+        "name": "country",
+        "label": "Country",
+        "type": "select",
+        "required": false,
+        "options": [
+          { "label": "United States", "value": "US" },
+          { "label": "Canada", "value": "CA" }
+        ],
+        "validation": null
+      }
+    ]
+  },
+  "debug": {
+    "groupCount": 1,
+    "fieldCount": 0
+  }
+}
+```
+
+#### FormSchema Type
+
+<ResponseField name="id" type="string">
+  Form identifier
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Form name
+</ResponseField>
+
+<ResponseField name="fields" type="FieldSchema[]">
+  Array of field definitions
+</ResponseField>
+
+#### FieldSchema Type
+
+<ResponseField name="name" type="string">
+  Field identifier (unique within form)
+</ResponseField>
+
+<ResponseField name="label" type="string">
+  Display label for the field
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  Field type (text, email, phone, number, textarea, select, dropdown, radio, checkbox, multiple_checkboxes, etc.)
+</ResponseField>
+
+<ResponseField name="required" type="boolean">
+  Whether the field is required
+</ResponseField>
+
+<ResponseField name="options" type="FieldOption[] | undefined">
+  Available options for select/radio/checkbox fields
+</ResponseField>
+
+<ResponseField name="validation" type="Record<string, unknown> | undefined">
+  Validation rules
+</ResponseField>
+
+#### FieldOption Type
+
+<ResponseField name="label" type="string">
+  Display text for the option
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  Submitted value for the option
+</ResponseField>
+
+#### Error Responses
+
+<ResponseField name="400" type="Bad Request">
+  Missing formId parameter
+</ResponseField>
+
+```json
+{
+  "error": "Missing formId"
+}
+```
+
+<ResponseField name="401" type="Unauthorized">
+  Not connected to HubSpot
+</ResponseField>
+
+```json
+{
+  "error": "Not connected to HubSpot"
+}
+```
+
+<ResponseField name="500" type="Internal Server Error">
+  Failed to fetch form details from HubSpot
+</ResponseField>
+
+```json
+{
+  "error": "Failed to fetch form details from HubSpot",
+  "details": "..."
+}
+```
+
+#### HubSpot API Called
+
+```http
+GET https://api.hubapi.com/marketing/v3/forms/{formId}
+Authorization: Bearer {accessToken}
+Content-Type: application/json
+```
+
+#### Field Normalization
+
+The endpoint normalizes HubSpot's field structure:
+
+1. Extracts fields from `formFieldGroups`, `fieldGroups`, or `fields` arrays
+2. Normalizes field types from `type`, `fieldType`, or `inputType`
+3. Normalizes labels from `label` or `labelText`
+4. Normalizes options from `options` or `choices` arrays
+5. Filters out invalid fields (missing name)
+6. Ensures consistent option structure (label + value)
+
+---
+
+## Health Check
+
+<CodeGroup>
+```http GET /health
+GET /health
+```
+</CodeGroup>
+
+Simple health check endpoint to verify server is running.
+
+**Location**: `main/server/src/index.ts:27`
+
+#### Response
+
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
+## CORS Configuration
+
+The server allows CORS requests from:
+
+- `http://localhost:5173` (default Vite dev server)
+- Any `*.trycloudflare.com` subdomain
+- Origin header matches allowed origins
+
+**Credentials**: Enabled
+
+**Location**: `main/server/src/index.ts:10-24`
+
+---
+
+## Error Handling
+
+All endpoints follow consistent error response format:
+
+```typescript
+{
+  error: string;      // Human-readable error message
+  details?: string;   // Optional detailed error information
+}
+```
+
+### Common Status Codes
+
+<ResponseField name="200" type="OK">
+  Request successful
+</ResponseField>
+
+<ResponseField name="302" type="Found">
+  Redirect (OAuth flow)
+</ResponseField>
+
+<ResponseField name="400" type="Bad Request">
+  Invalid request parameters
+</ResponseField>
+
+<ResponseField name="401" type="Unauthorized">
+  Not authenticated or session expired
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  Server error or external API failure
+</ResponseField>
+
+---
+
+## Token Management
+
+Tokens are stored in an in-memory Map with the following structure:
+
+```typescript
+const tokenStore = new Map<string, TokenRecord>();
+
+type TokenRecord = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  portalId?: number;
+};
+```
+
+**Key**: Portal ID (or "default")
+
+**Limitations**:
+- Tokens are lost on server restart
+- No automatic token refresh implemented
+- Single portal support (last connected portal)
+- No expiration checking on token usage
+
+**Production Recommendations**:
+- Implement persistent token storage (database, Redis)
+- Add automatic token refresh logic
+- Support multiple portals per user
+- Check token expiration before use
+- Implement proper session management

@@ -1,0 +1,446 @@
+---
+title: Field Palette
+description: Automatically detect form fields and drag them into your layout with intelligent validation
+---
+
+## Overview
+
+The Field Palette is a smart sidebar that automatically detects all available fields from your selected HubSpot form and makes them available for drag-and-drop. It intelligently shows only fields that aren't already in use, preventing duplicates and maintaining a clean workspace.
+
+<Info>
+The Field Palette is implemented in `main/frontend/src/components/Sidebar.tsx` (lines 152-168) and integrates with the drag-and-drop system through `@dnd-kit/core`.
+</Info>
+
+## How It Works
+
+### Auto-Detection
+
+When you select a HubSpot form, the palette automatically:
+
+1. **Fetches** all fields from the form schema
+2. **Filters** out fields already in use on the canvas
+3. **Displays** only available fields
+4. **Updates** in real-time as you add/remove fields
+
+```tsx
+// From Sidebar.tsx:65-77
+const usedFields = new Set<string>();
+
+if (layout) {
+  layout.steps.forEach((step) => {
+    step.rows.forEach((row) => {
+      row.fields.forEach((field) => usedFields.add(field));
+    });
+  });
+}
+
+const availableFields = schema
+  ? schema.fields.filter((field) => !usedFields.has(field.name))
+  : [];
+```
+
+<Tip>
+The palette recalculates automatically whenever you add or remove a field from the canvas. No manual refresh needed!
+</Tip>
+
+## Field Display
+
+### Field Item Structure
+
+Each field in the palette displays:
+
+- **Field label**: The user-facing name from HubSpot
+- **Required badge**: Visual indicator for required fields
+- **Drag handle**: Visual cue (cursor changes to grab)
+
+```tsx
+// From Sidebar.tsx:32-48
+function DetectedFieldItem({ field }: DetectedFieldItemProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `palette:${field.name}`,
+    data: { type: 'palette-field', fieldId: field.name },
+  });
+  
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    opacity: isDragging ? 0.6 : 1,
+  };
+
+  return (
+    <li ref={setNodeRef} style={style} className="detected-field-item" {...attributes} {...listeners}>
+      <span className="detected-field-label">{field.label || field.name}</span>
+      {field.required && <span className="detected-field-badge">Requerido</span>}
+    </li>
+  );
+}
+```
+
+### Required vs Optional Fields
+
+<CardGroup cols={2}>
+  <Card title="Required Fields" icon="asterisk" color="#ef4444">
+    - Cannot be deleted from canvas
+    - Display "Required" badge in palette
+    - Automatically added to first step on form selection
+  </Card>
+  <Card title="Optional Fields" icon="circle" color="#64748b">
+    - Can be added/removed freely
+    - No badge in palette
+    - Return to palette when deleted from canvas
+  </Card>
+</CardGroup>
+
+### Empty State
+
+When all fields are in use:
+
+```tsx
+// From Sidebar.tsx:155-157
+{availableFields.length === 0 ? (
+  <div className="detected-fields-empty">No hay campos disponibles</div>
+) : (
+  // ... render field list
+)}
+```
+
+## Dragging from Palette
+
+### Starting a Drag
+
+<Steps>
+  <Step title="Hover over a field">
+    The cursor changes to a "grab" hand icon
+  </Step>
+  <Step title="Click and hold">
+    The field becomes semi-transparent (60% opacity)
+  </Step>
+  <Step title="Drag to canvas">
+    A ghost image follows your cursor
+  </Step>
+  <Step title="Drop on target">
+    The field is added to your layout
+  </Step>
+</Steps>
+
+### Palette Field ID Format
+
+Fields dragged from the palette have a special ID format to distinguish them from fields already on the canvas:
+
+```typescript
+// Format: palette:fieldName
+id: `palette:${field.name}`
+
+// Example
+id: "palette:email"
+id: "palette:firstname"
+id: "palette:company"
+```
+
+This prefix helps the drag-and-drop system identify the source:
+
+```typescript
+// From PALETTE_FEATURE_GUIDE.md (lines 189-192)
+const activeFieldId =
+  activeType === "palette-field"
+    ? String(active.data.current?.fieldId ?? getPaletteFieldId(rawId))
+    : rawId;
+```
+
+## Drop Zones
+
+When dragging from the palette, you can drop fields in multiple locations:
+
+<Tabs>
+  <Tab title="Top of Row">
+    Drop in the **top 20%** of an existing row to create a new row **above** it.
+    
+    ```typescript
+    // Creates new row at index 0
+    addFieldToNewRow(stepId, fieldId, 0)
+    ```
+  </Tab>
+  
+  <Tab title="Center of Row">
+    Drop in the **center 60%** with at least **16px overlap** to add the field **inside** that row.
+    
+    ```typescript
+    // Adds to existing row (max 3 fields)
+    addFieldToRow(stepId, fieldId, rowId, insertAtIndex)
+    ```
+    
+    <Warning>
+    Rows are limited to 3 fields. If the row is full, the field will create a new row instead.
+    </Warning>
+  </Tab>
+  
+  <Tab title="Bottom of Row">
+    Drop in the **bottom 20%** of an existing row to create a new row **below** it.
+    
+    ```typescript
+    // Creates new row at index + 1
+    addFieldToNewRow(stepId, fieldId, rowIndex + 1)
+    ```
+  </Tab>
+  
+  <Tab title="Empty Step">
+    Drop anywhere in an empty step to create the first row.
+    
+    ```typescript
+    // Creates first row in step
+    addFieldToNewRow(stepId, fieldId)
+    ```
+  </Tab>
+</Tabs>
+
+### Drop Zone Detection
+
+The system uses precise collision detection:
+
+```typescript
+// From PALETTE_FEATURE_GUIDE.md (lines 193-199)
+// Zone Detection Algorithm:
+// - Top 20% + low overlap → new row BEFORE
+// - Bottom 20% + low overlap → new row AFTER  
+// - Center 60% + ≥16px overlap → combine IN the row
+// - Left/Right within overlap → determines position (left/right)
+```
+
+## Field Validation
+
+The palette includes built-in validation to prevent common errors:
+
+### Duplicate Prevention
+
+```typescript
+// From PALETTE_FEATURE_GUIDE.md (lines 68-75)
+const fieldNames = collectFieldNames(current);
+if (fieldNames.includes(fieldId)) {
+  return; // Field already in use - prevent duplicate
+}
+```
+
+<Note>
+If you try to add a field that's already on the canvas, the action is silently rejected and the field stays in the palette.
+</Note>
+
+### Row Capacity Check
+
+```typescript
+// Validates maximum 3 fields per row
+if (row.fields.length >= 3) {
+  // Create new row instead of adding to full row
+  addFieldToNewRow(stepId, fieldId);
+}
+```
+
+### Required Field Protection
+
+Required fields:
+- Cannot be deleted from the canvas
+- Don't appear in the palette after initial placement
+- Always remain on the form
+
+## Visual Feedback
+
+### During Drag
+
+<AccordionGroup>
+  <Accordion title="Field Being Dragged">
+    ```css
+    .detected-field-item {
+      opacity: 0.6;
+      cursor: grabbing;
+    }
+    ```
+    The field becomes semi-transparent to indicate it's being moved.
+  </Accordion>
+  
+  <Accordion title="Drag Overlay">
+    A ghost image of the field follows your cursor, showing the field label and any badges.
+  </Accordion>
+  
+  <Accordion title="Drop Zone Highlight">
+    Valid drop zones are highlighted with borders as you hover over them.
+  </Accordion>
+  
+  <Accordion title="Invalid Drop">
+    No highlight appears if dropping in an invalid location (like a full row).
+  </Accordion>
+</AccordionGroup>
+
+### After Drop
+
+<Steps>
+  <Step title="Field Disappears from Palette">
+    The field is immediately removed from the available fields list
+  </Step>
+  <Step title="Field Appears on Canvas">
+    The field renders in its new location with the drag handle and label
+  </Step>
+  <Step title="State Updates">
+    The `usedFields` set updates to include the newly added field
+  </Step>
+</Steps>
+
+## Palette Workflow
+
+### Scenario 1: Adding a Previously Removed Field
+
+<Steps>
+  <Step title="Remove Optional Field">
+    Click the ❌ button on an optional field in the canvas
+  </Step>
+  <Step title="Field Returns to Palette">
+    The field immediately appears in the "Campos detectados" section
+  </Step>
+  <Step title="Drag Back to Canvas">
+    Drag the field from the palette to any drop zone
+  </Step>
+  <Step title="Field Re-added">
+    The field is added at the new location and removed from the palette again
+  </Step>
+</Steps>
+
+### Scenario 2: Building Layout from Scratch
+
+<Steps>
+  <Step title="Select Form">
+    Choose a HubSpot form from the dropdown
+  </Step>
+  <Step title="Required Fields Auto-Added">
+    Required fields are automatically placed in the first step
+  </Step>
+  <Step title="Optional Fields Available">
+    All optional fields appear in the palette
+  </Step>
+  <Step title="Drag Optional Fields">
+    Build your layout by dragging fields to desired positions
+  </Step>
+  <Step title="Palette Empties">
+    As you add fields, the palette shrinks until all fields are used
+  </Step>
+</Steps>
+
+## Technical Integration
+
+### Component Location
+
+```
+main/frontend/src/components/Sidebar.tsx
+├── Lines 50-61: Sidebar component
+├── Lines 62-77: Available fields calculation
+├── Lines 152-168: Palette rendering
+└── Lines 32-48: DetectedFieldItem (draggable field)
+```
+
+### Store Actions
+
+The palette uses these Zustand store actions:
+
+```typescript
+// Add field to new row
+addFieldToNewRow(stepId: string, fieldId: string, insertAtIndex?: number)
+
+// Add field to existing row
+addFieldToRow(stepId: string, fieldId: string, rowId: string, insertAtIndex: number)
+```
+
+<Info>
+These actions are defined in `main/hooks/useLayoutStore.ts` and include validation logic documented in PALETTE_FEATURE_GUIDE.md (lines 53-75).
+</Info>
+
+### Data Flow
+
+```
+┌─────────────────┐
+│ FormSchema      │
+│ (all fields)    │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────────┐
+│ useLayoutStore      │
+│ - layout.steps[]    │
+│ - layout.rows[][]   │
+│ - layout.fields[]   │ (used fields)
+└────────┬────────────┘
+         │
+    ┌────┴────┐
+    ▼         ▼
+┌────────┐  ┌──────────────┐
+│Palette │  │Canvas        │
+│        │  │              │
+│schema  │  │Fields on     │
+│.fields │  │canvas        │
+│MINUS   │  │              │
+│used    │  │Drop zones    │
+│fields  │  │detect        │
+│        │  │palette-field │
+│Drag ───┼──►              │
+│from    │  │and execute:  │
+│here    │  │addFieldToRow │
+└────────┘  └──────────────┘
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Start with Required" icon="check">
+    Add all required fields first, then enhance with optional fields for better UX
+  </Card>
+  <Card title="Group Related Fields" icon="layer-group">
+    Drag related fields (like name fields) to the same row for visual grouping
+  </Card>
+  <Card title="Test on Mobile" icon="mobile">
+    Rows with 3 fields may be tight on mobile - preview before finalizing
+  </Card>
+  <Card title="Use Empty Palette" icon="check-circle">
+    Aim to use all available fields - empty palette means complete form
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Palette Always Empty">
+    **Problem**: No fields appear in "Campos detectados"
+    
+    **Solutions**:
+    - Verify form schema loaded (check for error messages)
+    - Check if all fields are already on canvas
+    - Ensure layout is initialized (useLayoutStore.layout !== null)
+  </Accordion>
+  
+  <Accordion title="Can't Drop Field">
+    **Problem**: Field won't drop on canvas
+    
+    **Solutions**:
+    - Ensure you're dropping in a valid zone (not a full row)
+    - Check that DndContext wraps both Sidebar and LayoutBuilder
+    - Verify field isn't already on canvas (duplicate check)
+  </Accordion>
+  
+  <Accordion title="Field Appears in Both Palette and Canvas">
+    **Problem**: Same field shown in two places
+    
+    **Solutions**:
+    - This should never happen - indicates a bug
+    - Check collectFieldNames() function in useLayoutStore
+    - Verify usedFields Set is calculating correctly
+  </Accordion>
+  
+  <Accordion title="Drag Doesn't Start">
+    **Problem**: Click doesn't initiate drag
+    
+    **Solutions**:
+    - Verify DetectedFieldItem uses useDraggable hook
+    - Check that id and data props are set correctly
+    - Ensure DndContext includes Sidebar component
+  </Accordion>
+</AccordionGroup>
+
+## Related Documentation
+
+- [Visual Editor](/features/visual-editor) - Learn about the canvas and drop zones
+- [Preview Panel](/features/preview) - See how fields render in the final form
+- [Module Export](/features/module-export) - Export your field layout to HubSpot

@@ -1,0 +1,553 @@
+---
+title: Custom Hooks Reference
+description: Complete reference for all custom React hooks in the HubSpot Form Builder
+---
+
+This page documents all custom hooks used in the HubSpot Form Builder application.
+
+## useHubSpotForms
+
+Manages HubSpot API integration for fetching forms and form schemas.
+
+**Location**: `main/frontend/src/hooks/useHubSpotForms.ts`
+
+### Return Values
+
+<ResponseField name="forms" type="HubSpotForm[]">
+  Array of available HubSpot forms
+</ResponseField>
+
+<ResponseField name="loading" type="boolean">
+  Whether forms list is currently loading
+</ResponseField>
+
+<ResponseField name="error" type="string | null">
+  Error message if form loading failed
+</ResponseField>
+
+<ResponseField name="connected" type="boolean">
+  Whether OAuth connection to HubSpot is active
+</ResponseField>
+
+<ResponseField name="schema" type="FormSchema | null">
+  Currently loaded form schema
+</ResponseField>
+
+<ResponseField name="schemaLoading" type="boolean">
+  Whether schema is currently loading
+</ResponseField>
+
+<ResponseField name="schemaError" type="string | null">
+  Error message if schema loading failed
+</ResponseField>
+
+<ResponseField name="fetchForms" type="() => Promise<void>">
+  Fetches list of forms from HubSpot API
+</ResponseField>
+
+<ResponseField name="fetchFormSchema" type="(formId: string) => Promise<void>">
+  Fetches schema for a specific form by ID
+</ResponseField>
+
+<ResponseField name="checkStatus" type="() => Promise<void>">
+  Checks OAuth connection status
+</ResponseField>
+
+### HubSpotForm Type
+
+```typescript
+type HubSpotForm = {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+};
+```
+
+### API Endpoints Used
+
+- `GET /api/forms` - List all forms
+- `GET /api/forms/:formId` - Get form schema
+- `GET /oauth/hubspot/status` - Check connection status
+
+### Error Handling
+
+<Accordion title="Session Expiration">
+  When a 401 status is received, the hook:
+  - Sets `connected` to `false`
+  - Throws error: "Session expired. Please reconnect to HubSpot."
+  - Updates error state with the message
+</Accordion>
+
+### Usage Example
+
+```tsx
+import { useHubSpotForms } from './hooks/useHubSpotForms';
+
+function App() {
+  const {
+    forms,
+    loading,
+    error,
+    connected,
+    schema,
+    schemaLoading,
+    schemaError,
+    fetchForms,
+    fetchFormSchema,
+    checkStatus,
+  } = useHubSpotForms();
+
+  useEffect(() => {
+    if (connected) {
+      fetchForms();
+    }
+  }, [connected, fetchForms]);
+
+  useEffect(() => {
+    if (connected && selectedFormId) {
+      fetchFormSchema(selectedFormId);
+    }
+  }, [connected, selectedFormId, fetchFormSchema]);
+
+  // ... rest of component
+}
+```
+
+---
+
+## useLayoutStore
+
+Zustand store for managing form layout state and operations.
+
+**Location**: `main/frontend/src/hooks/useLayoutStore.ts`
+
+### Store Shape
+
+<ResponseField name="layout" type="LayoutState | null">
+  Current layout configuration
+</ResponseField>
+
+### Actions
+
+#### setLayout
+
+<ParamField path="layout" type="LayoutState" required>
+  New layout state
+</ParamField>
+
+```typescript
+setLayout: (layout: LayoutState) => void
+```
+
+Directly sets the entire layout state.
+
+#### initializeFromSchema
+
+<ParamField path="schema" type="FormSchema" required>
+  Form schema to initialize from
+</ParamField>
+
+<ParamField path="mode" type="'one-step' | 'multi-step'" default="'one-step'">
+  Layout mode
+</ParamField>
+
+```typescript
+initializeFromSchema: (schema: FormSchema, mode?: LayoutState['mode']) => void
+```
+
+Initializes layout from a form schema. Creates one field per row.
+
+- **One-step mode**: All fields in a single step
+- **Multi-step mode**: Fields split evenly between two steps
+
+#### setMode
+
+<ParamField path="mode" type="'one-step' | 'multi-step'" required>
+  New layout mode
+</ParamField>
+
+```typescript
+setMode: (mode: LayoutState['mode']) => void
+```
+
+Switches between single-step and multi-step layouts while preserving all fields.
+
+#### addStep
+
+```typescript
+addStep: () => void
+```
+
+Adds a new empty step to the layout. Automatically:
+- Switches mode to `'multi-step'`
+- Generates unique step ID
+- Names step as "Paso N" where N is step number
+
+#### removeStep
+
+<ParamField path="stepId" type="string" required>
+  ID of step to remove
+</ParamField>
+
+```typescript
+removeStep: (stepId: string) => void
+```
+
+Removes a step and moves its fields to the first remaining step. Prevents removing the last step.
+
+#### renameStep
+
+<ParamField path="stepId" type="string" required>
+  ID of step to rename
+</ParamField>
+
+<ParamField path="title" type="string" required>
+  New step title
+</ParamField>
+
+```typescript
+renameStep: (stepId: string, title: string) => void
+```
+
+Updates a step's title. Trims whitespace and defaults to "Paso" if empty.
+
+#### reorderSteps
+
+<ParamField path="oldIndex" type="number" required>
+  Current step index
+</ParamField>
+
+<ParamField path="newIndex" type="number" required>
+  Target step index
+</ParamField>
+
+```typescript
+reorderSteps: (oldIndex: number, newIndex: number) => void
+```
+
+Reorders steps by moving a step from one index to another.
+
+#### moveFieldBetweenSteps
+
+<ParamField path="fieldId" type="string" required>
+  Field identifier
+</ParamField>
+
+<ParamField path="fromStepIndex" type="number" required>
+  Source step index
+</ParamField>
+
+<ParamField path="toStepIndex" type="number" required>
+  Target step index
+</ParamField>
+
+```typescript
+moveFieldBetweenSteps: (fieldId: string, fromStepIndex: number, toStepIndex: number) => void
+```
+
+Moves a field from one step to another. Creates a new row in the target step.
+
+#### removeFieldFromStep
+
+<ParamField path="stepId" type="string" required>
+  Step ID containing the field
+</ParamField>
+
+<ParamField path="fieldName" type="string" required>
+  Field to remove
+</ParamField>
+
+```typescript
+removeFieldFromStep: (stepId: string, fieldName: string) => void
+```
+
+Removes a field from a step. Empty rows are automatically cleaned up.
+
+#### addFieldToNewRow
+
+<ParamField path="stepId" type="string" required>
+  Target step ID
+</ParamField>
+
+<ParamField path="fieldId" type="string" required>
+  Field to add
+</ParamField>
+
+<ParamField path="insertAtIndex" type="number">
+  Row index to insert at (optional, defaults to end)
+</ParamField>
+
+```typescript
+addFieldToNewRow: (stepId: string, fieldId: string, insertAtIndex?: number) => void
+```
+
+Adds a field from the palette to a new row in a step. Prevents duplicate fields.
+
+#### addFieldToRow
+
+<ParamField path="stepId" type="string" required>
+  Target step ID
+</ParamField>
+
+<ParamField path="fieldId" type="string" required>
+  Field to add
+</ParamField>
+
+<ParamField path="rowId" type="string" required>
+  Target row ID
+</ParamField>
+
+<ParamField path="insertAtIndex" type="number" required>
+  Position within row (0-3)
+</ParamField>
+
+```typescript
+addFieldToRow: (stepId: string, fieldId: string, rowId: string, insertAtIndex: number) => void
+```
+
+Adds a field to an existing row. Maximum 3 fields per row. Prevents duplicate fields.
+
+#### moveFieldToNewRow
+
+<ParamField path="stepId" type="string" required>
+  Step containing the field
+</ParamField>
+
+<ParamField path="fieldId" type="string" required>
+  Field to move
+</ParamField>
+
+<ParamField path="insertAtIndex" type="number">
+  Row index to insert at (optional, defaults to end)
+</ParamField>
+
+```typescript
+moveFieldToNewRow: (stepId: string, fieldId: string, insertAtIndex?: number) => void
+```
+
+Moves a field to its own new row within the same step. Empty rows are cleaned up.
+
+#### moveFieldWithinStep
+
+<ParamField path="stepId" type="string" required>
+  Step containing both rows
+</ParamField>
+
+<ParamField path="fieldId" type="string" required>
+  Field to move
+</ParamField>
+
+<ParamField path="fromRowId" type="string" required>
+  Source row ID
+</ParamField>
+
+<ParamField path="toRowId" type="string" required>
+  Target row ID
+</ParamField>
+
+<ParamField path="toFieldIndex" type="number" required>
+  Position in target row
+</ParamField>
+
+```typescript
+moveFieldWithinStep: (
+  stepId: string,
+  fieldId: string,
+  fromRowId: string,
+  toRowId: string,
+  toFieldIndex: number
+) => void
+```
+
+Moves a field from one row to another within the same step. Target row must have space (< 3 fields).
+
+### Helper Functions
+
+#### createStepId
+
+```typescript
+function createStepId(): string
+```
+
+Generates unique step IDs using `crypto.randomUUID()` or fallback timestamp-based ID.
+
+#### createRowId
+
+```typescript
+function createRowId(): string
+```
+
+Generates unique row IDs using `crypto.randomUUID()` or fallback timestamp-based ID.
+
+### Usage Example
+
+```tsx
+import { useLayoutStore } from './hooks/useLayoutStore';
+
+function LayoutBuilder() {
+  const layout = useLayoutStore((state) => state.layout);
+  const renameStep = useLayoutStore((state) => state.renameStep);
+  const removeStep = useLayoutStore((state) => state.removeStep);
+  const removeFieldFromStep = useLayoutStore((state) => state.removeFieldFromStep);
+
+  // Use the actions
+  const handleRenameStep = (stepId: string, title: string) => {
+    renameStep(stepId, title);
+  };
+
+  // ... rest of component
+}
+```
+
+---
+
+## useLayoutDnd
+
+Manages drag-and-drop logic for the layout builder using `@dnd-kit`.
+
+**Location**: `main/frontend/src/hooks/useLayoutDnd.ts`
+
+### Parameters
+
+<ParamField path="schema" type="FormSchema | null" required>
+  Current form schema
+</ParamField>
+
+### Return Values
+
+<ResponseField name="sensors" type="SensorDescriptor<SensorOptions>[]">
+  Configured dnd-kit sensors (PointerSensor with 8px activation distance)
+</ResponseField>
+
+<ResponseField name="activeId" type="string | null">
+  ID of currently dragged item
+</ResponseField>
+
+<ResponseField name="activeType" type="'field' | 'step' | 'palette-field' | null">
+  Type of currently dragged item
+</ResponseField>
+
+<ResponseField name="dropPositions" type="Map<string, 'before' | 'after' | 'inside' | null>">
+  Visual indicators for where items will drop
+</ResponseField>
+
+<ResponseField name="handleDragStart" type="(event: DragStartEvent) => void">
+  Initiates drag operation
+</ResponseField>
+
+<ResponseField name="handleDragMove" type="(event: DragMoveEvent) => void">
+  Tracks mouse position during drag
+</ResponseField>
+
+<ResponseField name="handleDragOver" type="(event: DragOverEvent) => void">
+  Calculates drop position and updates visual indicators
+</ResponseField>
+
+<ResponseField name="handleDragEnd" type="(event: DragEndEvent) => void">
+  Executes the drop operation
+</ResponseField>
+
+### Drag Types
+
+<Accordion title="field">
+  An existing field in the layout being reordered or moved between rows/steps.
+</Accordion>
+
+<Accordion title="step">
+  A step being reordered in multi-step mode.
+</Accordion>
+
+<Accordion title="palette-field">
+  A new field being dragged from the sidebar palette to the layout.
+</Accordion>
+
+### Drop Targets
+
+<ResponseField name="field" type="drop target">
+  Dropping on a field can place the dragged item before, after, or beside it (combining into same row)
+</ResponseField>
+
+<ResponseField name="step-drop" type="drop target">
+  Dropping on a step's drop zone adds the field to that step
+</ResponseField>
+
+### Drop Position Logic
+
+<Accordion title="Before">
+  When dragged item is above the target field with minimal overlap.
+</Accordion>
+
+<Accordion title="After">
+  When dragged item is below the target field with minimal overlap.
+</Accordion>
+
+<Accordion title="Inside">
+  When dragged item overlaps the target field significantly. Determines left/right placement based on horizontal position.
+</Accordion>
+
+### Constraints
+
+- Maximum 3 fields per row
+- Fields can only move within their current step (except via step-drop zones)
+- Required fields cannot be removed from layout
+- At least one step must exist
+
+### Usage Example
+
+```tsx
+import { DndContext, DragOverlay, closestCenter } from '@dnd-kit/core';
+import { useLayoutDnd } from './hooks/useLayoutDnd';
+
+function App() {
+  const { schema } = useHubSpotForms();
+  const dnd = useLayoutDnd(schema);
+
+  return (
+    <DndContext
+      sensors={dnd.sensors}
+      collisionDetection={closestCenter}
+      onDragStart={dnd.handleDragStart}
+      onDragMove={dnd.handleDragMove}
+      onDragOver={dnd.handleDragOver}
+      onDragEnd={dnd.handleDragEnd}
+    >
+      <LayoutBuilder schema={schema} dropPositions={dnd.dropPositions} />
+      
+      <DragOverlay>
+        {dnd.activeId && (
+          <div className="field-item-overlay">
+            {/* Render dragged item preview */}
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+```
+
+### Internal Functions
+
+#### findStepIndexByField
+
+```typescript
+function findStepIndexByField(layout: LayoutState, fieldId: string): number
+```
+
+Finds the step index containing a specific field. Returns -1 if not found.
+
+#### findStepIndexById
+
+```typescript
+function findStepIndexById(layout: LayoutState, stepId: string): number
+```
+
+Finds a step's index by its ID. Returns -1 if not found.
+
+#### getPaletteFieldId
+
+```typescript
+function getPaletteFieldId(rawId: string): string
+```
+
+Extracts field ID from palette item ID (removes `palette:` prefix).

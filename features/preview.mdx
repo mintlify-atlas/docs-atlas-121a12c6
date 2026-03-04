@@ -1,0 +1,643 @@
+---
+title: Real-Time Preview Panel
+description: Interactively test your multi-step form with live validation and step navigation
+---
+
+## Overview
+
+The Preview Panel provides a fully interactive, real-time preview of your multi-step form. As you build your layout in the visual editor, the preview updates instantly to show exactly how users will experience your form - complete with validation, multi-step navigation, and responsive styling.
+
+<Info>
+The Preview Panel is implemented in `main/frontend/src/components/PreviewPanel.tsx` and uses Shadow DOM for style isolation.
+</Info>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Real-Time Updates" icon="bolt">
+    Changes in the editor appear instantly in the preview
+  </Card>
+  <Card title="Interactive Testing" icon="mouse-pointer">
+    Fill out fields and navigate between steps
+  </Card>
+  <Card title="Field Validation" icon="shield-check">
+    Test required fields, email validation, phone numbers
+  </Card>
+  <Card title="Style Isolation" icon="lock">
+    Shadow DOM prevents CSS conflicts
+  </Card>
+</CardGroup>
+
+## Preview Components
+
+### Form Header
+
+Displays the form name and step indicators:
+
+```tsx
+// From PreviewPanel.tsx:598-617
+<div className="preview-header">
+  <h2 className="preview-title">{schema.name}</h2>
+  {showStepIndicators && (
+    <div className="preview-steps">
+      {layout.steps.map((_, index) => `
+        <div className="step-indicator 
+          ${index < currentStep ? 'is-complete' : ''} 
+          ${index === currentStep ? 'is-active' : ''}"
+        ></div>
+      `)}
+    </div>
+  )}
+</div>
+```
+
+**Step Indicators**:
+- **Gray**: Not yet reached
+- **Blue**: Currently active step
+- **Green**: Completed steps
+
+<Note>
+Step indicators only appear in multi-step mode when you have 2+ steps (line 595 in PreviewPanel.tsx).
+</Note>
+
+### Step Title
+
+Displays the current step's title:
+
+```tsx
+// From PreviewPanel.tsx:620
+{showStepIndicators ? `<h3 class="step-title">${currentStepData.title}</h3>` : ''}
+```
+
+### Form Fields
+
+Fields are rendered based on your layout with responsive row support:
+
+```tsx
+// From PreviewPanel.tsx:622-634
+${currentStepData.rows.map((row) => `
+  <div class="field-row-preview">
+    ${row.fields
+      .map((fieldName) => schema.fields.find((f) => f.name === fieldName))
+      .filter((f): f is FieldSchema => f !== undefined)
+      .map((field) => `<div class="field-wrapper-preview">${renderField(field)}</div>`)
+      .join('')}
+  </div>
+`).join('')}
+```
+
+<Tip>
+The CSS grid automatically adjusts field width based on how many fields are in each row - matching your canvas layout exactly.
+</Tip>
+
+### Navigation Buttons
+
+<Tabs>
+  <Tab title="First Step">
+    ```html
+    <button disabled>Anterior</button>
+    <button id="next-btn">Siguiente</button>
+    ```
+    Previous button is disabled on the first step.
+  </Tab>
+  
+  <Tab title="Middle Steps">
+    ```html
+    <button id="prev-btn">Anterior</button>
+    <button id="next-btn">Siguiente</button>
+    ```
+    Both navigation buttons are active.
+  </Tab>
+  
+  <Tab title="Last Step">
+    ```html
+    <button id="prev-btn">Anterior</button>
+    <button type="submit" id="submit-btn">Enviar</button>
+    ```
+    Next button becomes Submit button.
+  </Tab>
+</Tabs>
+
+## Field Types
+
+The preview supports all HubSpot field types with accurate rendering:
+
+### Text Inputs
+
+```tsx
+// From PreviewPanel.tsx:450-463
+case 'text':
+case 'email':
+case 'phone':
+case 'number':
+  fieldHtml = `
+    <input
+      type="${field.type === 'phone' ? 'tel' : field.type}"
+      class="field-input ${errorClass}"
+      data-field="${field.name}"
+      value="${value}"
+      placeholder="${field.label}"
+      ${field.required ? 'required' : ''}
+    />
+  `;
+  break;
+```
+
+**Supported types**: text, email, phone (tel), number
+
+### Textarea
+
+```tsx
+// From PreviewPanel.tsx:465-474
+case 'textarea':
+  fieldHtml = `
+    <textarea
+      class="field-textarea ${errorClass}"
+      data-field="${field.name}"
+      placeholder="${field.label}"
+      ${field.required ? 'required' : ''}
+    >${value}</textarea>
+  `;
+  break;
+```
+
+### Select Dropdown
+
+```tsx
+// From PreviewPanel.tsx:476-493
+case 'select':
+case 'dropdown': {
+  const options = field.options || [];
+  fieldHtml = `
+    <select class="field-select ${errorClass}" data-field="${field.name}">
+      <option value="">Select an option</option>
+      ${options.map((opt) => `
+        <option value="${opt.value}" ${value === opt.value ? 'selected' : ''}>
+          ${opt.label}
+        </option>
+      `).join('')}
+    </select>
+  `;
+  break;
+}
+```
+
+### Radio Buttons & Checkboxes
+
+```tsx
+// From PreviewPanel.tsx:495-527
+case 'radio':
+case 'checkbox':
+case 'multiple_checkboxes': {
+  const choices = field.options || [];
+  fieldHtml = `
+    <div class="field-choices">
+      ${choices.map((opt) => {
+        const isChecked = field.type === 'checkbox' || field.type === 'multiple_checkboxes'
+          ? value.split(',').includes(opt.value)
+          : value === opt.value;
+        return `
+          <label class="choice-label">
+            <input
+              type="${field.type === 'multiple_checkboxes' ? 'checkbox' : field.type}"
+              class="choice-input"
+              data-field="${field.name}"
+              value="${opt.value}"
+              ${isChecked ? 'checked' : ''}
+              ${field.required ? 'required' : ''}
+            />
+            <span>${opt.label}</span>
+          </label>
+        `;
+      }).join('')}
+    </div>
+  `;
+  break;
+}
+```
+
+## Interactive Testing
+
+### Filling Out Fields
+
+All fields are fully functional:
+
+```typescript
+// From PreviewPanel.tsx:392-409
+const handleFieldChange = (fieldName: string, value: string) => {
+  console.log('Field change:', fieldName, '=', value);
+  setFormData((prev) => {
+    const next = { ...prev, [fieldName]: value };
+    formDataRef.current = next; // Update ref immediately
+    return next;
+  });
+
+  // Clear error when user types
+  if (formErrorsRef.current[fieldName]) {
+    setFormErrors((prev) => {
+      const next = { ...prev };
+      delete next[fieldName];
+      formErrorsRef.current = next;
+      return next;
+    });
+  }
+};
+```
+
+<Info>
+Form data persists as you navigate between steps. Values are retained even if you go back to previous steps.
+</Info>
+
+### Step Navigation
+
+<Steps>
+  <Step title="Fill Current Step">
+    Enter data in any or all fields on the current step
+  </Step>
+  <Step title="Click Next">
+    Validation runs automatically for all required fields
+  </Step>
+  <Step title="Fix Errors or Proceed">
+    If validation passes, you advance to the next step
+  </Step>
+  <Step title="Go Back Anytime">
+    Previous button lets you review/edit earlier steps
+  </Step>
+</Steps>
+
+```typescript
+// From PreviewPanel.tsx:411-422
+const handleNext = () => {
+  if (!layout) return;
+
+  console.log('Validating step', currentStep, 'with data:', formData);
+  if (validateStep(currentStep)) {
+    if (currentStep < layout.steps.length - 1) {
+      setCurrentStep(currentStep + 1);
+    }
+  } else {
+    console.log('Validation failed. Errors:', formErrors);
+  }
+};
+```
+
+## Field Validation
+
+The preview includes comprehensive client-side validation:
+
+### Required Field Check
+
+```typescript
+// From PreviewPanel.tsx:334-337
+if (field.required && !value.trim()) {
+  return 'Please complete this required field.';
+}
+```
+
+Required fields must have a non-empty value to proceed.
+
+### Email Validation
+
+```typescript
+// From PreviewPanel.tsx:339-344
+if (field.type === 'email' && value) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(value)) {
+    return 'Please enter a valid email address.';
+  }
+}
+```
+
+Validates standard email format: `user@domain.com`
+
+### Phone Number Validation
+
+```typescript
+// From PreviewPanel.tsx:346-352
+if (field.type === 'phone' && value) {
+  const phoneRegex = /^[+]?[(]?[0-9]{1,3}[)]?[-\s.]?[0-9]{1,4}[-\s.]?[0-9]{1,4}[-\s.]?[0-9]{1,9}$/;
+  if (!phoneRegex.test(value)) {
+    return 'Please enter a valid phone number.';
+  }
+}
+```
+
+Supports various phone formats:
+- `+1 234-567-8900`
+- `(234) 567-8900`
+- `234.567.8900`
+- `2345678900`
+
+### Step Validation
+
+Validation runs when you click Next or Submit:
+
+```typescript
+// From PreviewPanel.tsx:357-390
+const validateStep = (stepIndex: number): boolean => {
+  if (!schema || !layout) return true;
+
+  const step = layout.steps[stepIndex];
+  const stepFieldNames: string[] = [];
+  step.rows.forEach((row) => stepFieldNames.push(...row.fields));
+  const errors: FormErrors = {};
+  let isValid = true;
+
+  stepFieldNames.forEach((fieldName) => {
+    const field = schema.fields.find((f) => f.name === fieldName);
+    if (!field) return;
+
+    const value = formDataRef.current[fieldName] || '';
+    const error = validateField(fieldName, value, field);
+
+    if (error) {
+      errors[fieldName] = error;
+      isValid = false;
+    }
+  });
+
+  setFormErrors(errors);
+  return isValid;
+};
+```
+
+<Warning>
+Validation only checks fields in the current step. You can't proceed to the next step until all required fields in the current step are valid.
+</Warning>
+
+### Error Display
+
+Errors appear below the field with styling:
+
+```tsx
+// From PreviewPanel.tsx:542-550
+return `
+  <div class="field-group">
+    <label class="field-label">
+      ${field.label}
+      ${field.required ? '<span class="field-required">*</span>' : ''}
+    </label>
+    ${fieldHtml}
+    ${error ? `<span class="field-error">${error}</span>` : ''}
+  </div>
+`;
+```
+
+Error styling:
+```css
+// From PreviewPanel.tsx:116-132
+.field-input.has-error,
+.field-select.has-error,
+.field-textarea.has-error {
+  border-color: #ef4444;
+}
+
+.field-error {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: #ef4444;
+}
+```
+
+## Success State
+
+After submitting the form:
+
+```tsx
+// From PreviewPanel.tsx:565-588
+if (isSubmitted) {
+  shadowRoot.innerHTML = `
+    <style>${PREVIEW_STYLES}</style>
+    <div class="preview-container">
+      <div class="success-message">
+        <h3>✓ Formulario enviado</h3>
+        <p>Este es un preview simulado. En producción, los datos se enviarían a HubSpot.</p>
+      </div>
+    </div>
+  `;
+
+  // Reset on click
+  setTimeout(() => {
+    const container = shadowRoot.querySelector('.success-message');
+    if (container) {
+      container.addEventListener('click', () => {
+        setIsSubmitted(false);
+        setFormData({});
+        setFormErrors({});
+        setCurrentStep(0);
+      });
+    }
+  }, 0);
+  return;
+}
+```
+
+<Note>
+The preview is for testing only. In production, form data will be submitted to HubSpot using the actual form submission system.
+</Note>
+
+## Shadow DOM Implementation
+
+The preview uses Shadow DOM for style isolation:
+
+```typescript
+// From PreviewPanel.tsx:257-272
+useEffect(() => {
+  if (!containerRef.current) return;
+
+  if (!shadowRootRef.current) {
+    shadowRootRef.current = containerRef.current.attachShadow({ mode: 'open' });
+  }
+
+  const shadowRoot = shadowRootRef.current;
+  renderPreview(shadowRoot);
+
+  return () => {
+    if (shadowRoot) {
+      shadowRoot.innerHTML = '';
+    }
+  };
+}, [schema, layout, currentStep, isSubmitted]);
+```
+
+**Benefits**:
+- CSS from your main app won't affect the preview
+- Preview styles won't leak into the editor
+- Accurate representation of the final form
+
+<Info>
+All preview styles are defined inline (lines 12-233 in PreviewPanel.tsx) and injected into the Shadow DOM.
+</Info>
+
+## Responsive Design
+
+The preview is fully responsive:
+
+```css
+// From PreviewPanel.tsx:217-232
+.field-row-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.field-wrapper-preview {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .field-row-preview {
+    grid-template-columns: 1fr;
+  }
+}
+```
+
+<Tip>
+On mobile screens (< 640px), all fields stack vertically regardless of your row layout. Test this by resizing your browser.
+</Tip>
+
+## Preview Styling
+
+The preview includes production-ready styles:
+
+<AccordionGroup>
+  <Accordion title="Color Palette">
+    ```css
+    --primary: #0c63ff;      /* Primary blue */
+    --success: #10b981;      /* Success green */
+    --error: #ef4444;        /* Error red */
+    --text: #0f172a;         /* Dark text */
+    --text-muted: #64748b;   /* Muted text */
+    --border: #cbd5e1;       /* Default border */
+    --background: #f1f5f9;   /* Light background */
+    ```
+  </Accordion>
+  
+  <Accordion title="Typography">
+    ```css
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
+                 'Helvetica Neue', Arial, sans-serif;
+    ```
+    Uses system fonts for best performance and native look.
+  </Accordion>
+  
+  <Accordion title="Spacing">
+    - Container padding: 24px
+    - Field margin: 20px bottom
+    - Form actions: 24px top padding
+    - Row gap: 16px between fields
+  </Accordion>
+  
+  <Accordion title="Interactions">
+    ```css
+    .field-input:focus {
+      outline: none;
+      border-color: #0c63ff;
+      box-shadow: 0 0 0 3px rgba(12, 99, 255, 0.1);
+    }
+    ```
+    Smooth transitions and focus states on all interactive elements.
+  </Accordion>
+</AccordionGroup>
+
+## Technical Details
+
+### State Management
+
+```typescript
+// From PreviewPanel.tsx:238-254
+const [currentStep, setCurrentStep] = useState(0);
+const [formData, setFormData] = useState<FormData>({});
+const [formErrors, setFormErrors] = useState<FormErrors>({});
+const [isSubmitted, setIsSubmitted] = useState(false);
+
+// Use refs to avoid stale closures
+const formDataRef = useRef<FormData>({});
+const formErrorsRef = useRef<FormErrors>({});
+
+// Keep refs in sync with state
+useEffect(() => {
+  formDataRef.current = formData;
+}, [formData]);
+
+useEffect(() => {
+  formErrorsRef.current = formErrors;
+}, [formErrors]);
+```
+
+### Event Handling
+
+Event listeners are attached after DOM render:
+
+```typescript
+// From PreviewPanel.tsx:650-706
+const attachEventListeners = (shadowRoot: ShadowRoot) => {
+  // Form inputs
+  const inputs = shadowRoot.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+    '.field-input, .field-textarea, .field-select, .choice-input'
+  );
+
+  inputs.forEach((input) => {
+    const fieldName = input.getAttribute('data-field');
+    if (!fieldName) return;
+
+    if (input.type === 'checkbox') {
+      input.addEventListener('change', (e) => {
+        // Handle checkbox state
+      });
+    } else {
+      input.addEventListener('input', (e) => {
+        handleFieldChange(fieldName, target.value);
+      });
+    }
+  });
+
+  // Navigation buttons
+  const prevBtn = shadowRoot.querySelector('#prev-btn');
+  if (prevBtn) prevBtn.addEventListener('click', handlePrevious);
+
+  const nextBtn = shadowRoot.querySelector('#next-btn');
+  if (nextBtn) nextBtn.addEventListener('click', handleNext);
+
+  // Submit
+  const form = shadowRoot.querySelector('.preview-form');
+  if (form) form.addEventListener('submit', handleSubmit);
+};
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Test All Steps" icon="clipboard-check">
+    Navigate through every step to ensure validation and flow work correctly
+  </Card>
+  <Card title="Fill Required Fields" icon="asterisk">
+    Test the form with and without required fields to verify validation
+  </Card>
+  <Card title="Check Responsive" icon="mobile">
+    Resize browser to test mobile layout
+  </Card>
+  <Card title="Test Edge Cases" icon="triangle-exclamation">
+    Try invalid emails, incomplete phone numbers, and empty submissions
+  </Card>
+</CardGroup>
+
+## Limitations
+
+<Warning>
+**Preview Limitations**:
+- Form data is not actually sent to HubSpot
+- File upload fields are not yet supported
+- Conditional logic is not implemented in preview
+- Custom styling from HubSpot is not applied
+</Warning>
+
+These features work in the production form after export.
+
+## Related Documentation
+
+- [Visual Editor](/features/visual-editor) - Build your form layout
+- [Field Palette](/features/field-palette) - Add fields to your form
+- [Module Export](/features/module-export) - Export to HubSpot for production use

@@ -1,0 +1,325 @@
+---
+title: Building Multi-Step Forms
+description: Complete workflow for creating and customizing multi-step forms from HubSpot forms
+---
+
+This guide walks you through the complete process of building a multi-step form, from selecting a HubSpot form to organizing fields into a custom layout.
+
+## Overview
+
+The HubSpot Form Builder allows you to transform any HubSpot form into a customizable multi-step experience. The workflow consists of:
+
+1. Connecting to HubSpot via OAuth
+2. Selecting a form from your portal
+3. Understanding the form schema
+4. Planning your multi-step layout
+5. Organizing fields into steps using drag-and-drop
+6. Previewing and exporting your module
+
+## Step 1: Connect to HubSpot
+
+<Steps>
+  <Step title="Start the Application">
+    Ensure both the frontend and backend servers are running:
+
+    ```bash
+    # Terminal 1 - Backend
+    cd main/server
+    npm run dev
+
+    # Terminal 2 - Frontend
+    cd main/frontend
+    npm run dev
+    ```
+
+    Open your browser to `http://localhost:5173`
+  </Step>
+
+  <Step title="Initiate OAuth Connection">
+    Click the **"Connect to HubSpot"** button in the sidebar.
+
+    You'll be redirected to HubSpot's authorization page.
+  </Step>
+
+  <Step title="Authorize the Application">
+    On the HubSpot authorization page:
+    - Select the portal you want to connect to
+    - Review the requested permissions (Forms, Content)
+    - Click **"Connect app"**
+
+    You'll be redirected back to the Form Builder.
+  </Step>
+
+  <Step title="Verify Connection">
+    Once redirected, you should see:
+    - A green "Connected" status in the sidebar
+    - The form selector dropdown becomes active
+  </Step>
+</Steps>
+
+<Tip>
+  If you see a connection error, check that your `HUBSPOT_REDIRECT_URI` in `server/.env` matches exactly what's configured in your HubSpot OAuth app settings.
+</Tip>
+
+## Step 2: Select a Form
+
+Once connected, you can select a form to work with:
+
+<Steps>
+  <Step title="Open Form Selector">
+    In the sidebar, locate the **"Select Form"** dropdown.
+
+    The dropdown will automatically load all forms from your HubSpot portal.
+  </Step>
+
+  <Step title="Choose Your Form">
+    Click the dropdown to see all available forms, sorted by most recently updated.
+
+    Select the form you want to convert into a multi-step experience.
+  </Step>
+
+  <Step title="Wait for Schema Load">
+    The application will fetch the complete form schema including:
+    - All field definitions
+    - Field types and labels
+    - Required field status
+    - Field options (for dropdowns, radios, checkboxes)
+  </Step>
+</Steps>
+
+<Note>
+  Form schemas are fetched from the HubSpot Forms API endpoint `/marketing/v3/forms/{formId}` via your backend server (App.tsx:67-77, useHubSpotForms.ts:53-79).
+</Note>
+
+## Step 3: Understanding the Form Schema
+
+When a form loads, the application converts it into an internal schema:
+
+### Schema Structure
+
+```typescript
+type FormSchema = {
+  id: string;          // HubSpot form GUID
+  name: string;        // Form name
+  fields: FieldSchema[];
+}
+
+type FieldSchema = {
+  name: string;        // Field property name (e.g., "email")
+  label: string;       // Display label (e.g., "Email Address")
+  type: string;        // Field type (text, email, select, etc.)
+  required: boolean;   // Whether field is required
+  options?: Option[];  // For select/radio/checkbox fields
+}
+```
+
+### Initial Layout
+
+When first loaded, all form fields are automatically arranged:
+- **One-Step Mode**: All fields in a single step, one field per row
+- **Multi-Step Mode**: Fields split evenly between two steps
+
+You can see this logic in `useLayoutStore.ts:43-84`.
+
+### Field Detection
+
+The sidebar shows **"Campos detectados"** (Detected Fields) - these are fields from your schema that aren't currently placed in the canvas. Initially, this will be empty since all fields start in the layout.
+
+## Step 4: Planning Your Multi-Step Layout
+
+Before diving into the drag-and-drop interface, consider your form's user experience:
+
+### Best Practices for Step Organization
+
+<Accordion title="Group Related Information">
+  Organize fields by topic or context:
+
+  **Example: Contact Form**
+  - **Step 1 - Personal Info**: First name, Last name, Email
+  - **Step 2 - Company Info**: Company name, Job title, Phone
+  - **Step 3 - Preferences**: Product interest, Newsletter opt-in
+</Accordion>
+
+<Accordion title="Start with Easy Questions">
+  Place simple, non-intimidating fields in the first step:
+  - Name fields
+  - Email address
+  - Basic selections
+
+  Save complex or sensitive questions for later steps when users are more committed.
+</Accordion>
+
+<Accordion title="Progressive Disclosure">
+  Show the most relevant fields first, then reveal additional options:
+  - **Step 1**: Core required fields
+  - **Step 2**: Important optional context
+  - **Step 3**: Nice-to-have information
+</Accordion>
+
+<Accordion title="Consider Visual Balance">
+  Distribute fields to create balanced steps:
+  - Aim for 3-6 fields per step
+  - Use 2-3 fields per row for compact information
+  - Give longer fields (like text areas) their own row
+</Accordion>
+
+### Layout Modes
+
+You can switch between layout modes at any time:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **Single Step** | All fields in one step | Simple forms with < 5 fields |
+| **Multi Step** | Fields organized across multiple steps | Complex forms, better UX for 6+ fields |
+
+<Tip>
+  Switch modes using the radio buttons in the **"Layout Options"** section of the sidebar (Sidebar.tsx:108-131).
+</Tip>
+
+## Step 5: Building Your Layout
+
+Now you're ready to customize the field arrangement. See the [Drag and Drop Guide](/guides/drag-and-drop) for detailed instructions on:
+
+- Dragging fields from the palette
+- Reordering fields within steps
+- Creating multi-column rows
+- Managing steps
+- Removing fields
+
+## Step 6: Using Layout Controls
+
+### Adding Steps
+
+In **Multi Step** mode, you can add additional steps:
+
+1. Click the **"+ Add Step"** button in the sidebar
+2. A new empty step appears in the canvas
+3. Drag fields from other steps or the palette into it
+
+### Renaming Steps
+
+Customize step titles to describe their content:
+
+1. Click on the step title input field
+2. Type your new title (e.g., "Personal Information")
+3. The title updates automatically
+
+<Note>
+  Step titles appear in the progress indicator of your published form (LayoutBuilder.tsx:88-95).
+</Note>
+
+### Removing Steps
+
+Delete steps you don't need:
+
+1. Click the **×** button in the step header
+2. All fields from the removed step move to the first remaining step
+3. You cannot delete the last remaining step
+
+### Removing Fields
+
+Remove non-required fields from your layout:
+
+1. Click the **×** button on any non-required field
+2. The field disappears from the canvas
+3. It automatically appears in the **"Campos detectados"** palette
+4. You can drag it back to the canvas later
+
+<Warning>
+  Required fields cannot be removed from the layout. They don't show a delete button (LayoutBuilder.tsx:172-181).
+</Warning>
+
+## Example Walkthrough
+
+Let's build a 3-step contact form from a HubSpot form with these fields:
+- firstname, lastname, email (required)
+- company, jobtitle, phone
+- product_interest, message
+
+<Steps>
+  <Step title="Start with Default Layout">
+    After selecting the form, all 8 fields are arranged in a single step, one per row.
+  </Step>
+
+  <Step title="Switch to Multi-Step Mode">
+    Click the **"Multi Step"** radio button in Layout Options.
+
+    Fields automatically split into 2 steps (4 fields each).
+  </Step>
+
+  <Step title="Add Third Step">
+    Click **"+ Add Step"** to create Step 3.
+  </Step>
+
+  <Step title="Organize Personal Info (Step 1)">
+    Drag `lastname` onto `firstname` (center drop zone) to combine them in one row.
+
+    Drag `email` to remain on its own row below.
+
+    Rename the step to "Personal Information".
+  </Step>
+
+  <Step title="Organize Company Info (Step 2)">
+    Move or arrange `company`, `jobtitle`, and `phone` into this step.
+
+    Combine `company` and `jobtitle` in one row.
+
+    Put `phone` on its own row.
+
+    Rename to "Company Details".
+  </Step>
+
+  <Step title="Organize Preferences (Step 3)">
+    Move `product_interest` and `message` to Step 3.
+
+    Each gets its own row for better visibility.
+
+    Rename to "Your Interests".
+  </Step>
+
+  <Step title="Preview Your Form">
+    Click the **"Preview"** tab to see your multi-step form in action.
+
+    Test the step navigation and field validation.
+  </Step>
+</Steps>
+
+## Layout Information Display
+
+The sidebar shows real-time stats about your layout:
+
+```
+Steps: 3
+Fields: 8
+```
+
+This helps you verify all fields are accounted for (Sidebar.tsx:139-148).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Drag and Drop" icon="hand" href="/guides/drag-and-drop">
+    Master the drag-and-drop interface
+  </Card>
+  <Card title="Exporting Modules" icon="download" href="/guides/exporting-modules">
+    Generate and download your HubSpot module
+  </Card>
+</CardGroup>
+
+## Tips for Success
+
+<Tip>
+  **Save your work**: The layout is stored in browser memory. Regenerate and download your module frequently to avoid losing changes.
+</Tip>
+
+<Tip>
+  **Test the preview**: Always preview your form before exporting to catch layout issues early.
+</Tip>
+
+<Tip>
+  **Keep it simple**: Don't overwhelm users with too many steps. 3-4 steps is usually optimal.
+</Tip>
+
+<Tip>
+  **Required fields first**: Place required fields in early steps to prevent user frustration.
+</Tip>

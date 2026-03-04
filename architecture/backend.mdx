@@ -1,0 +1,625 @@
+---
+title: 'Backend Architecture'
+description: 'Deep dive into the Express backend: OAuth implementation, HubSpot API proxy, and server configuration'
+---
+
+## Overview
+
+The backend is an Express server built with TypeScript that handles OAuth authentication with HubSpot and proxies requests to the HubSpot Forms API. It runs on port 3001 by default.
+
+## Tech Stack
+
+- **Node.js** - JavaScript runtime
+- **Express 4.19** - Web framework
+- **TypeScript 5.5** - Type-safe JavaScript
+- **dotenv 16.4** - Environment variable management
+- **cors 2.8** - Cross-Origin Resource Sharing
+- **tsx** - TypeScript execution for development
+
+## Server Setup
+
+**File**: [server/src/index.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/server/src/index.ts)
+
+```typescript
+import cors from 'cors';
+import dotenv from 'dotenv';
+import express from 'express';
+import { oauthRouter } from './oauth.js';
+import { formsRouter } from './forms.js';
+
+dotenv.config();
+
+const app = express();
+
+// CORS configuration
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowedOrigins = ['http://localhost:5173'];
+      
+      // Allow Cloudflare tunnels and localhost
+      if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.trycloudflare.com')) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+  })
+);
+
+app.use(express.json());
+
+// Routes
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.use('/oauth', oauthRouter);
+app.use('/api', formsRouter);
+
+const port = Number(process.env.PORT) || 3001;
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server listening on 0.0.0.0:${port}`);
+});
+```
+
+## OAuth 2.0 Implementation
+
+**File**: [server/src/oauth.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/server/src/oauth.ts)
+
+Handles the OAuth 2.0 authorization code flow with HubSpot.
+
+### Token Storage
+
+```typescript
+type TokenRecord = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  portalId?: number;
+};
+
+const stateStore = new Map<string, number>();
+const tokenStore = new Map<string, TokenRecord>();
+```
+
+⚠️ **Note**: In-memory storage is used for development. For production, use a database with encryption.
+
+### OAuth Routes
+
+#### 1. GET /oauth/hubspot/install
+
+Initiates the OAuth flow by redirecting to HubSpot.
+
+```typescript
+router.get('/hubspot/install', (_req: Request, res: Response) => {
+  const state = crypto.randomBytes(24).toString('hex');
+  stateStore.set(state, Date.now());
+  
+  const url = buildAuthorizeUrl(state);
+  res.redirect(url);
+});
+
+function buildAuthorizeUrl(state: string) {
+  const clientId = getEnv('HUBSPOT_CLIENT_ID');
+  const redirectUri = getEnv('HUBSPOT_REDIRECT_URI');
+  const scope = getEnv('HUBSPOT_SCOPES');
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope,
+    state,
+  });
+  
+  return `https://app.hubspot.com/oauth/authorize?${params.toString()}`;
+}
+```
+
+**Flow**:
+1. Generate random state token (CSRF protection)
+2. Store state in memory
+3. Build HubSpot authorization URL
+4. Redirect user to HubSpot login
+
+#### 2. GET /oauth/hubspot/callback
+
+Handles the callback from HubSpot after user authorization.
+
+```typescript
+router.get('/hubspot/callback', async (req: Request, res: Response) => {
+  const code = String(req.query.code || '');
+  const state = String(req.query.state || '');
+
+  // Validate state
+  if (!code || !state || !stateStore.has(state)) {
+    return res.status(400).json({ error: 'Invalid state or code' });
+  }
+  stateStore.delete(state);
+
+  try {
+    const clientId = getEnv('HUBSPOT_CLIENT_ID');
+    const clientSecret = getEnv('HUBSPOT_CLIENT_SECRET');
+    const redirectUri = getEnv('HUBSPOT_REDIRECT_URI');
+
+    // Exchange code for token
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      code,
+    });
+
+    const tokenRes = await fetch('https://api.hubapi.com/oauth/v1/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+
+    if (!tokenRes.ok) {
+      const text = await tokenRes.text();
+      return res.status(500).json({ error: 'Token exchange failed', details: text });
+    }
+
+    const tokenJson = await tokenRes.json();
+
+    // Store token
+    const record: TokenRecord = {
+      accessToken: tokenJson.access_token,
+      refreshToken: tokenJson.refresh_token,
+      expiresAt: Date.now() + tokenJson.expires_in * 1000,
+      portalId: tokenJson.hub_id,
+    };
+
+    const key = String(record.portalId || 'default');
+    tokenStore.set(key, record);
+
+    // Redirect to frontend
+    const frontendUrl = getOptionalEnv('FRONTEND_URL');
+    if (frontendUrl) {
+      const url = new URL(frontendUrl);
+      url.searchParams.set('connected', 'true');
+      if (record.portalId) {
+        url.searchParams.set('portalId', String(record.portalId));
+      }
+      return res.redirect(url.toString());
+    }
+
+    return res.json({
+      connected: true,
+      portalId: record.portalId ?? null,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'OAuth error', details: String(err) });
+  }
+});
+```
+
+**Flow**:
+1. Receive authorization code and state from HubSpot
+2. Validate state (CSRF protection)
+3. Exchange code for access token and refresh token
+4. Store tokens in memory (keyed by portal ID)
+5. Redirect user back to frontend
+
+#### 3. GET /oauth/hubspot/status
+
+Checks if the user has an active OAuth session.
+
+```typescript
+router.get('/hubspot/status', (_req: Request, res: Response) => {
+  const hasAny = tokenStore.size > 0;
+  res.json({ connected: hasAny });
+});
+```
+
+#### 4. POST /oauth/hubspot/logout
+
+Clears OAuth session.
+
+```typescript
+router.post('/hubspot/logout', (_req: Request, res: Response) => {
+  tokenStore.clear();
+  res.json({ success: true, message: 'Session closed successfully' });
+});
+```
+
+## HubSpot Forms API Proxy
+
+**File**: [server/src/forms.ts](https://github.com/davidmenlop/HubSpot-Form-builder/blob/main/main/server/src/forms.ts)
+
+Proxies requests to HubSpot's Forms API with authentication.
+
+### Type Definitions
+
+```typescript
+type HubSpotForm = {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type HubSpotField = {
+  name?: string;
+  label?: string;
+  labelText?: string;
+  type?: string;
+  fieldType?: string;
+  inputType?: string;
+  required?: boolean;
+  options?: HubSpotOption[];
+  choices?: HubSpotOption[];
+  validation?: Record<string, unknown>;
+};
+
+type HubSpotFormDetails = {
+  id?: string;
+  name?: string;
+  formFieldGroups?: { fields?: HubSpotField[] }[];
+  fieldGroups?: { fields?: HubSpotField[] }[];
+  fields?: HubSpotField[];
+};
+```
+
+### Helper Functions
+
+#### Get Access Token
+
+```typescript
+function getAccessToken() {
+  const token = Array.from(tokenStore.values())[0];
+  return token?.accessToken ?? null;
+}
+```
+
+#### Normalize Field Options
+
+```typescript
+function normalizeOptions(options: HubSpotOption[] | undefined): FieldOption[] | undefined {
+  if (!options || options.length === 0) return undefined;
+
+  const normalized = options
+    .map((option) => {
+      const label = String(option.label ?? option.value ?? option.name ?? '').trim();
+      const value = String(option.value ?? option.label ?? option.name ?? '').trim();
+      if (!label || !value) return null;
+      return { label, value };
+    })
+    .filter((option): option is FieldOption => Boolean(option));
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+```
+
+#### Normalize Field Schema
+
+```typescript
+function normalizeField(field: HubSpotField): FieldSchema | null {
+  const name = String(field.name ?? '').trim();
+  if (!name) return null;
+
+  const label = String(field.label ?? field.labelText ?? name).trim();
+  const type = String(field.type ?? field.fieldType ?? field.inputType ?? 'text').trim();
+  const required = Boolean(field.required);
+  const options = normalizeOptions(field.options ?? field.choices);
+  const validation = field.validation ?? field.validationRules ?? undefined;
+
+  return { name, label, type, required, options, validation };
+}
+```
+
+#### Normalize HubSpot Form
+
+```typescript
+function normalizeHubSpotForm(form: HubSpotFormDetails): FormSchema {
+  const fields: FieldSchema[] = [];
+  
+  // Try formFieldGroups first, then fieldGroups
+  const groups = Array.isArray(form.formFieldGroups)
+    ? form.formFieldGroups
+    : Array.isArray(form.fieldGroups)
+      ? form.fieldGroups
+      : [];
+
+  groups.forEach((group) => {
+    group.fields?.forEach((field) => {
+      const normalized = normalizeField(field);
+      if (normalized) fields.push(normalized);
+    });
+  });
+
+  // Fallback to top-level fields array
+  if (fields.length === 0 && Array.isArray(form.fields)) {
+    form.fields.forEach((field) => {
+      const normalized = normalizeField(field);
+      if (normalized) fields.push(normalized);
+    });
+  }
+
+  return {
+    id: String(form.id ?? ''),
+    name: String(form.name ?? 'Unnamed Form'),
+    fields,
+  };
+}
+```
+
+### API Routes
+
+#### 1. GET /api/forms
+
+Fetches list of forms from HubSpot.
+
+```typescript
+router.get('/forms', async (_req: Request, res: Response) => {
+  try {
+    if (tokenStore.size === 0) {
+      return res.status(401).json({ error: 'Not connected to HubSpot' });
+    }
+
+    const accessToken = getAccessToken();
+    if (!accessToken) {
+      return res.status(401).json({ error: 'No valid token found' });
+    }
+
+    const actualFormsRes = await fetch('https://api.hubapi.com/marketing/v3/forms', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!actualFormsRes.ok) {
+      const errorText = await actualFormsRes.text();
+      return res.status(actualFormsRes.status).json({
+        error: 'Failed to fetch forms from HubSpot',
+        details: errorText,
+      });
+    }
+
+    const formsJson = await actualFormsRes.json();
+    const forms: HubSpotForm[] = formsJson.results?.map((form: Record<string, unknown>) => ({
+      id: String(form.id ?? ''),
+      name: String(form.name ?? 'Unnamed Form'),
+      createdAt: Number(form.createdAt ?? 0),
+      updatedAt: Number(form.updatedAt ?? 0),
+    })) || [];
+
+    return res.json({ forms });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error', details: String(err) });
+  }
+});
+```
+
+**Response Example**:
+```json
+{
+  "forms": [
+    {
+      "id": "abc-123",
+      "name": "Contact Form",
+      "createdAt": 1678901234000,
+      "updatedAt": 1678901234000
+    }
+  ]
+}
+```
+
+#### 2. GET /api/forms/:formId
+
+Fetches detailed schema for a specific form.
+
+```typescript
+router.get('/forms/:formId', async (req: Request, res: Response) => {
+  try {
+    if (tokenStore.size === 0) {
+      return res.status(401).json({ error: 'Not connected to HubSpot' });
+    }
+
+    const accessToken = getAccessToken();
+    if (!accessToken) {
+      return res.status(401).json({ error: 'No valid token found' });
+    }
+
+    const formId = String(req.params.formId || '').trim();
+    if (!formId) {
+      return res.status(400).json({ error: 'Missing formId' });
+    }
+
+    const formRes = await fetch(`https://api.hubapi.com/marketing/v3/forms/${formId}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!formRes.ok) {
+      const errorText = await formRes.text();
+      return res.status(formRes.status).json({
+        error: 'Failed to fetch form details from HubSpot',
+        details: errorText,
+      });
+    }
+
+    const formJson = (await formRes.json()) as HubSpotFormDetails;
+    const schema = normalizeHubSpotForm(formJson);
+
+    return res.json({ schema });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error', details: String(err) });
+  }
+});
+```
+
+**Response Example**:
+```json
+{
+  "schema": {
+    "id": "abc-123",
+    "name": "Contact Form",
+    "fields": [
+      {
+        "name": "firstname",
+        "label": "First Name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "email",
+        "label": "Email",
+        "type": "email",
+        "required": true
+      }
+    ]
+  }
+}
+```
+
+## Environment Variables
+
+**File**: `server/.env`
+
+```bash
+# HubSpot OAuth Configuration
+HUBSPOT_CLIENT_ID=your_app_client_id
+HUBSPOT_CLIENT_SECRET=your_app_client_secret
+HUBSPOT_REDIRECT_URI=http://localhost:3001/oauth/hubspot/callback
+HUBSPOT_SCOPES=forms
+
+# Frontend URL (for OAuth redirect)
+FRONTEND_URL=http://localhost:5174
+
+# Server Port
+PORT=3001
+```
+
+### Required Scopes
+
+- `forms` - Read and write access to forms
+
+### Environment Helper
+
+```typescript
+function getEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing env var: ${name}`);
+  }
+  return value;
+}
+
+function getOptionalEnv(name: string): string | undefined {
+  const value = process.env[name];
+  return value && value.trim() ? value.trim() : undefined;
+}
+```
+
+## CORS Configuration
+
+The server allows requests from:
+
+1. **Localhost** - `http://localhost:5173` (default Vite port)
+2. **Cloudflare Tunnels** - Any domain ending in `.trycloudflare.com`
+3. **No origin** - Allows same-origin requests
+
+```typescript
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowedOrigins = ['http://localhost:5173'];
+      
+      if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.trycloudflare.com')) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true, // Allow cookies
+  })
+);
+```
+
+## Error Handling
+
+All endpoints return consistent error responses:
+
+```json
+{
+  "error": "Error message",
+  "details": "Additional error details"
+}
+```
+
+**Common Status Codes**:
+
+- `200` - Success
+- `400` - Bad Request (missing parameters)
+- `401` - Unauthorized (not connected or token expired)
+- `500` - Server Error (HubSpot API failure or internal error)
+
+## Security Considerations
+
+### Implemented
+
+✅ **State validation** - CSRF protection in OAuth flow
+✅ **Server-side token storage** - Tokens never sent to client
+✅ **CORS whitelist** - Only allowed origins can access API
+✅ **HTTPS required** - HubSpot API only accepts HTTPS
+✅ **Environment variables** - Secrets stored in .env file
+
+### TODO for Production
+
+⚠️ **Database storage** - Move from in-memory to encrypted database
+⚠️ **Token refresh** - Implement automatic refresh before expiry
+⚠️ **Rate limiting** - Prevent API abuse
+⚠️ **Input validation** - Validate all user inputs
+⚠️ **Request logging** - Log all API requests for auditing
+⚠️ **Error sanitization** - Don't expose internal errors to client
+
+## Development Commands
+
+```bash
+# Install dependencies
+cd server
+npm install
+
+# Run development server with hot reload
+npm run dev
+
+# Build for production
+npm run build
+
+# Run production server
+npm start
+
+# Lint code
+npm run lint
+```
+
+## API Testing
+
+Test the API using curl:
+
+```bash
+# Check health
+curl http://localhost:3001/health
+
+# Check OAuth status
+curl http://localhost:3001/oauth/hubspot/status
+
+# Fetch forms (requires active OAuth session)
+curl http://localhost:3001/api/forms
+
+# Fetch specific form
+curl http://localhost:3001/api/forms/abc-123
+```
+
+## Related Documentation
+
+- [Architecture Overview](/architecture/overview)
+- [Frontend Architecture](/architecture/frontend)
+- [Module Generators](/architecture/module-generators)

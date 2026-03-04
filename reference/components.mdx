@@ -1,0 +1,523 @@
+---
+title: Component Reference
+description: Complete reference for all React components in the HubSpot Form Builder
+---
+
+This page documents all React components used in the HubSpot Form Builder application, including their props, types, and usage.
+
+## App Component
+
+The root application component that orchestrates the entire form builder interface.
+
+**Location**: `main/frontend/src/App.tsx`
+
+### State Management
+
+The App component manages the following state:
+
+<ParamField path="viewMode" type="'edit' | 'preview'">
+  Current view mode of the application
+</ParamField>
+
+<ParamField path="zoomLevel" type="number" default="100">
+  Zoom level for the edit view (50-200)
+</ParamField>
+
+<ParamField path="selectedFormId" type="string">
+  Currently selected HubSpot form ID
+</ParamField>
+
+<ParamField path="generatedModule" type="Blob | null">
+  Generated HubL module blob ready for download
+</ParamField>
+
+<ParamField path="isGenerating" type="boolean">
+  Whether module generation is in progress
+</ParamField>
+
+### Key Features
+
+- Integrates drag-and-drop functionality via `@dnd-kit`
+- Manages zoom controls for canvas
+- Handles module generation and download
+- Coordinates between edit and preview modes
+
+### Usage Example
+
+```tsx
+import App from './App';
+
+// Rendered as root component
+ReactDOM.createRoot(document.getElementById('root')!).render(<App />);
+```
+
+---
+
+## Sidebar
+
+The left panel containing connection status, form selector, layout options, and field palette.
+
+**Location**: `main/frontend/src/components/Sidebar.tsx`
+
+### Props
+
+<ParamField path="connected" type="boolean" required>
+  Whether HubSpot OAuth connection is active
+</ParamField>
+
+<ParamField path="onRefresh" type="() => void" required>
+  Callback to refresh connection status
+</ParamField>
+
+<ParamField path="forms" type="HubSpotForm[]" required>
+  Array of available HubSpot forms
+</ParamField>
+
+<ParamField path="loading" type="boolean" required>
+  Whether forms are currently loading
+</ParamField>
+
+<ParamField path="error" type="string | null" required>
+  Error message if form loading failed
+</ParamField>
+
+<ParamField path="selectedFormId" type="string" required>
+  Currently selected form ID
+</ParamField>
+
+<ParamField path="onSelectFormId" type="(formId: string) => void" required>
+  Callback when a form is selected
+</ParamField>
+
+<ParamField path="schema" type="FormSchema | null" required>
+  Form schema containing field definitions
+</ParamField>
+
+<ParamField path="schemaLoading" type="boolean" required>
+  Whether schema is currently loading
+</ParamField>
+
+<ParamField path="schemaError" type="string | null" required>
+  Error message if schema loading failed
+</ParamField>
+
+### HubSpotForm Type
+
+```typescript
+type HubSpotForm = {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+};
+```
+
+### Sections
+
+The Sidebar contains four main sections:
+
+1. **Connection** - HubSpotConnect component
+2. **Select Form** - FormSelector component
+3. **Layout Options** - Mode selector and step management
+4. **Detected Fields** - Draggable field palette
+
+### Usage Example
+
+```tsx
+<Sidebar
+  connected={connected}
+  onRefresh={checkStatus}
+  forms={forms}
+  loading={loading}
+  error={error}
+  selectedFormId={selectedFormId}
+  onSelectFormId={setSelectedFormId}
+  schema={schema}
+  schemaLoading={schemaLoading}
+  schemaError={schemaError}
+/>
+```
+
+---
+
+## LayoutBuilder
+
+The canvas component that displays the form layout with draggable fields and steps.
+
+**Location**: `main/frontend/src/components/LayoutBuilder.tsx`
+
+### Props
+
+<ParamField path="schema" type="FormSchema | null" required>
+  Form schema containing field definitions
+</ParamField>
+
+<ParamField path="dropPositions" type="Map<string, 'before' | 'after' | 'inside' | null>" required>
+  Visual indicators for drop positions during drag operations
+</ParamField>
+
+### Features
+
+- Renders sortable steps using `@dnd-kit/sortable`
+- Each step contains rows of fields
+- Fields can be dragged within and between rows
+- Steps can be renamed and deleted (minimum 1 step required)
+- Required fields cannot be deleted
+
+### Child Components
+
+#### SortableStep
+
+Internal component for rendering individual steps.
+
+**Props:**
+
+<ParamField path="step" type="Step">
+  Step data containing id, title, and rows
+</ParamField>
+
+<ParamField path="fields" type="FieldSchema[]">
+  All available fields from the form schema
+</ParamField>
+
+<ParamField path="onRename" type="(stepId: string, title: string) => void">
+  Callback to rename a step
+</ParamField>
+
+<ParamField path="onDelete" type="() => void">
+  Callback to delete the step
+</ParamField>
+
+<ParamField path="onDeleteField" type="(fieldName: string) => void">
+  Callback to remove a field from the step
+</ParamField>
+
+<ParamField path="canDelete" type="boolean">
+  Whether the step can be deleted
+</ParamField>
+
+<ParamField path="dropPositions" type="Map<string, 'before' | 'after' | 'inside' | null>">
+  Drop position indicators
+</ParamField>
+
+#### FieldItem
+
+Internal component for rendering individual fields.
+
+**Props:**
+
+<ParamField path="fieldId" type="string">
+  Unique field identifier
+</ParamField>
+
+<ParamField path="fieldLabel" type="string">
+  Display label for the field
+</ParamField>
+
+<ParamField path="required" type="boolean">
+  Whether the field is required
+</ParamField>
+
+<ParamField path="position" type="'before' | 'after' | 'inside' | null">
+  Current drop position indicator
+</ParamField>
+
+<ParamField path="onDelete" type="() => void">
+  Callback to delete the field
+</ParamField>
+
+### Usage Example
+
+```tsx
+<LayoutBuilder 
+  schema={schema} 
+  dropPositions={dnd.dropPositions} 
+/>
+```
+
+---
+
+## PreviewPanel
+
+Interactive form preview with validation and multi-step navigation.
+
+**Location**: `main/frontend/src/components/PreviewPanel.tsx`
+
+### Props
+
+<ParamField path="schema" type="FormSchema | null" required>
+  Form schema containing field definitions
+</ParamField>
+
+<ParamField path="layout" type="LayoutState | null" required>
+  Current layout configuration
+</ParamField>
+
+### Features
+
+- Renders form using Shadow DOM for style isolation
+- Full form validation (required fields, email, phone)
+- Multi-step navigation with progress indicators
+- Simulated form submission
+- Responsive field rendering
+
+### Field Types Supported
+
+<Accordion title="Supported Field Types">
+  - `text` - Single-line text input
+  - `email` - Email input with validation
+  - `phone` - Phone number input with validation
+  - `number` - Numeric input
+  - `textarea` - Multi-line text input
+  - `select` / `dropdown` - Dropdown selection
+  - `radio` - Radio button group
+  - `checkbox` - Single checkbox
+  - `multiple_checkboxes` - Multiple checkbox group
+</Accordion>
+
+### Validation Rules
+
+<ResponseField name="required" type="boolean">
+  Field must have a non-empty value
+</ResponseField>
+
+<ResponseField name="email" type="pattern">
+  Must match email regex: `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`
+</ResponseField>
+
+<ResponseField name="phone" type="pattern">
+  Must match phone regex for international formats
+</ResponseField>
+
+### State Management
+
+<ParamField path="currentStep" type="number">
+  Index of currently displayed step
+</ParamField>
+
+<ParamField path="formData" type="Record<string, string>">
+  User-entered form values
+</ParamField>
+
+<ParamField path="formErrors" type="Record<string, string>">
+  Validation error messages by field name
+</ParamField>
+
+<ParamField path="isSubmitted" type="boolean">
+  Whether form has been successfully submitted
+</ParamField>
+
+### Usage Example
+
+```tsx
+<PreviewPanel 
+  schema={schema} 
+  layout={layout} 
+/>
+```
+
+---
+
+## FormSelector
+
+Dropdown for selecting a HubSpot form with schema preview.
+
+**Location**: `main/frontend/src/components/FormSelector.tsx`
+
+### Props
+
+<ParamField path="connected" type="boolean" required>
+  Whether HubSpot OAuth connection is active
+</ParamField>
+
+<ParamField path="forms" type="HubSpotForm[]" required>
+  Available forms to select from
+</ParamField>
+
+<ParamField path="loading" type="boolean" required>
+  Loading state for forms list
+</ParamField>
+
+<ParamField path="error" type="string | null" required>
+  Error message if any
+</ParamField>
+
+<ParamField path="selectedFormId" type="string" required>
+  Currently selected form ID
+</ParamField>
+
+<ParamField path="onSelectFormId" type="(formId: string) => void" required>
+  Callback when selection changes
+</ParamField>
+
+<ParamField path="schema" type="FormSchema | null" required>
+  Schema of selected form
+</ParamField>
+
+<ParamField path="schemaLoading" type="boolean" required>
+  Loading state for schema
+</ParamField>
+
+<ParamField path="schemaError" type="string | null" required>
+  Schema loading error
+</ParamField>
+
+### Features
+
+- Displays forms in a dropdown
+- Shows field types for selected form
+- Handles session expiration with reconnect prompt
+- Empty state when no forms available
+
+### Usage Example
+
+```tsx
+<FormSelector
+  connected={connected}
+  forms={forms}
+  loading={loading}
+  error={error}
+  selectedFormId={selectedFormId}
+  onSelectFormId={onSelectFormId}
+  schema={schema}
+  schemaLoading={schemaLoading}
+  schemaError={schemaError}
+/>
+```
+
+---
+
+## HubSpotConnect
+
+OAuth connection status and control component.
+
+**Location**: `main/frontend/src/components/HubSpotConnect.tsx`
+
+### Props
+
+<ParamField path="connected" type="boolean" required>
+  Current connection status
+</ParamField>
+
+<ParamField path="onRefresh" type="() => void" required>
+  Callback to refresh connection status
+</ParamField>
+
+### Features
+
+- **Connected State**: Shows status badge, refresh button, and logout button
+- **Disconnected State**: Shows connect button that redirects to OAuth flow
+- Confirms before logout
+- Reloads page after successful logout
+
+### API Endpoints Used
+
+<ResponseField name="API_ENDPOINTS.oauthInstall" type="string">
+  Redirects to HubSpot OAuth authorization
+</ResponseField>
+
+<ResponseField name="API_ENDPOINTS.oauthLogout" type="POST">
+  Clears OAuth session
+</ResponseField>
+
+### Usage Example
+
+```tsx
+<HubSpotConnect 
+  connected={connected} 
+  onRefresh={checkStatus} 
+/>
+```
+
+---
+
+## DetectedFieldItem
+
+Internal component for draggable field items in the sidebar palette.
+
+**Location**: `main/frontend/src/components/Sidebar.tsx`
+
+### Props
+
+<ParamField path="field" type="FieldSchema" required>
+  Field schema containing name, label, type, and required flag
+</ParamField>
+
+### Features
+
+- Uses `useDraggable` from `@dnd-kit/core`
+- Visual feedback during drag
+- Shows required badge for required fields
+- ID format: `palette:{fieldName}`
+
+### Usage Example
+
+```tsx
+{availableFields.map((field) => (
+  <DetectedFieldItem key={field.name} field={field} />
+))}
+```
+
+---
+
+## Type Definitions
+
+### FormSchema
+
+```typescript
+type FormSchema = {
+  id: string;
+  name: string;
+  fields: FieldSchema[];
+};
+```
+
+### FieldSchema
+
+```typescript
+type FieldSchema = {
+  name: string;
+  label: string;
+  type: string;
+  required: boolean;
+  options?: FieldOption[];
+  validation?: Record<string, unknown>;
+};
+```
+
+### FieldOption
+
+```typescript
+type FieldOption = {
+  label: string;
+  value: string;
+};
+```
+
+### LayoutState
+
+```typescript
+type LayoutState = {
+  mode: 'one-step' | 'multi-step';
+  steps: Step[];
+};
+```
+
+### Step
+
+```typescript
+type Step = {
+  id: string;
+  title: string;
+  rows: Row[];
+};
+```
+
+### Row
+
+```typescript
+type Row = {
+  id: string;
+  fields: string[]; // Array of field names (max 3 per row)
+};
+```

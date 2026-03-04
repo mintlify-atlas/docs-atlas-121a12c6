@@ -1,0 +1,635 @@
+---
+title: 'Frequently Asked Questions'
+description: 'Common questions about HubSpot Form Builder'
+---
+
+# Frequently Asked Questions
+
+Find answers to the most commonly asked questions about HubSpot Form Builder.
+
+## General Questions
+
+<Accordion title="What is HubSpot Form Builder?">
+
+HubSpot Form Builder is a visual drag-and-drop tool for creating multi-step forms for HubSpot CMS. It allows you to:
+
+- **Visually design** form layouts with drag-and-drop
+- **Auto-detect fields** from your existing HubSpot forms
+- **Preview in real-time** how your form will look
+- **Export as HubSpot modules** ready to upload to Design Manager
+- **Create multi-step forms** to improve user experience and conversion rates
+
+The tool connects securely to your HubSpot account via OAuth 2.0 and generates production-ready CMS modules that you can use in your HubSpot pages and templates.
+
+</Accordion>
+
+<Accordion title="Do I need a HubSpot account to use this?">
+
+Yes, you need an active HubSpot account with:
+
+- **API access** to Forms and CMS Content
+- **Permission to create private apps** or OAuth apps
+- **At least one form created** in HubSpot (to have fields to work with)
+
+You can use this with HubSpot Free, Starter, Professional, or Enterprise tiers. However, CMS features may require a CMS Hub subscription.
+
+</Accordion>
+
+<Accordion title="Is this an official HubSpot tool?">
+
+No, this is an independent, open-source project designed to work with HubSpot's APIs. It's not affiliated with or endorsed by HubSpot, Inc.
+
+The tool uses HubSpot's official public APIs and follows their best practices for OAuth authentication and data handling.
+
+</Accordion>
+
+<Accordion title="Is this tool free to use?">
+
+Yes! HubSpot Form Builder is completely free and open-source under the MIT License. You can:
+
+- Use it for personal or commercial projects
+- Modify the source code
+- Contribute improvements back to the project
+- Deploy it on your own servers
+
+There are no usage limits, subscription fees, or hidden costs.
+
+</Accordion>
+
+---
+
+## Setup & Configuration
+
+<Accordion title="What are the system requirements?">
+
+**Minimum requirements:**
+
+- **Node.js** version 18.0.0 or higher
+- **npm** version 9.0.0 or higher
+- **Modern web browser** (Chrome, Firefox, Safari, or Edge - latest version)
+- **HubSpot account** with Forms and CMS access
+
+**Recommended:**
+- Node.js 20+ for better performance
+- 4GB+ RAM for smooth operation
+- Stable internet connection for HubSpot API calls
+
+**Operating Systems:**
+- Windows 10/11
+- macOS 10.15+
+- Linux (Ubuntu 20.04+, Debian, Fedora, etc.)
+
+</Accordion>
+
+<Accordion title="What HubSpot scopes/permissions are required?">
+
+Your HubSpot private app needs the following scopes:
+
+**Required scopes:**
+- `forms` - Read and access form definitions
+- `content` - Required for CMS modules
+- `forms-uploaded-files` - Handle file uploads in forms
+
+**Configuration in `.env`:**
+```env
+HUBSPOT_SCOPES=forms content forms-uploaded-files
+```
+
+**To set up in HubSpot:**
+1. Go to **Settings → Integrations → Private Apps**
+2. Create new app or edit existing
+3. In the "Scopes" tab, enable the three scopes above
+4. Save and copy your credentials
+
+<Warning>
+If you add scopes after initial authentication, you'll need to logout and re-authenticate for the new scopes to take effect.
+</Warning>
+
+</Accordion>
+
+<Accordion title="Can I use this with HubSpot Free?">
+
+Yes, but with limitations:
+
+**What works:**
+- OAuth authentication
+- Loading forms from HubSpot
+- Building multi-step form layouts
+- Exporting modules as ZIP files
+
+**What might be limited:**
+- **Module upload to CMS** - Requires CMS Hub (paid feature)
+- **Advanced form features** - Some field types only in paid tiers
+- **Number of forms** - Free tier has form limits
+
+You can design and export modules on Free tier, but uploading them to HubSpot Design Manager requires a CMS Hub subscription.
+
+</Accordion>
+
+<Accordion title="Can I use Cloudflare Tunnels for development?">
+
+Yes! Cloudflare Tunnels are fully supported and useful for:
+
+- **Testing on mobile devices** while developing
+- **Sharing with team members** for review
+- **Testing across different browsers** remotely
+
+**Setup:**
+```bash
+# Terminal 1 - Backend
+cd main/server && npm run dev
+
+# Terminal 2 - Backend Tunnel
+cloudflared tunnel --url http://localhost:3001
+
+# Terminal 3 - Frontend
+cd main/frontend && npm run dev
+
+# Terminal 4 - Frontend Tunnel
+cloudflared tunnel --url http://localhost:5173
+```
+
+Then update your `.env` files with the generated tunnel URLs.
+
+<Tip>
+For local-only development, you don't need tunnels. Just use `http://localhost:5173` directly.
+</Tip>
+
+</Accordion>
+
+---
+
+## Forms & Fields
+
+<Accordion title="What field types are supported?">
+
+The Form Builder supports all standard HubSpot form field types:
+
+**Text inputs:**
+- Single-line text
+- Email
+- Phone number (tel)
+- Number
+
+**Selection fields:**
+- Dropdown (select)
+- Radio buttons
+- Checkboxes (single and multiple)
+
+**Text areas:**
+- Multi-line text
+
+**Special fields:**
+- File upload
+- Date picker
+- Hidden fields
+
+<Note>
+Custom field types or proprietary HubSpot fields may require additional configuration.
+</Note>
+
+</Accordion>
+
+<Accordion title="How many steps can I create?">
+
+There's no hard limit on the number of steps you can create. However, best practices recommend:
+
+**Optimal:**
+- **2-4 steps** for most forms
+- One logical section per step
+- 5-7 fields per step maximum
+
+**Technical limit:**
+- The application can handle 10+ steps
+- Performance may degrade with very large forms
+- Consider user experience - too many steps reduce completion rates
+
+**Modes available:**
+- **One-step mode:** All fields in a single page
+- **Multi-step mode:** Distribute fields across multiple steps
+
+You can switch between modes at any time, and fields will be redistributed automatically.
+
+</Accordion>
+
+<Accordion title="Can I reorder fields after adding them?">
+
+Yes! Fields can be freely reordered using drag and drop:
+
+**Within the same step:**
+- Drag a field to a different position
+- Drop in a different row
+- Combine fields in the same row (max 3 per row)
+
+**Between steps:**
+- Drag a field from one step to another
+- Drop it in the target step's drop zone
+- Field automatically moves between steps
+
+**Field arrangement:**
+- Drag to **top 20%** of a field → Create new row above
+- Drag to **center** → Add to same row
+- Drag to **bottom 20%** → Create new row below
+
+<Tip>
+All changes are reflected in real-time in the preview panel.
+</Tip>
+
+</Accordion>
+
+<Accordion title="Is there a limit to fields per row?">
+
+Yes, there's a maximum of **3 fields per row**.
+
+This limit ensures:
+- **Responsive design** - Forms remain usable on mobile devices
+- **Readability** - Fields don't become too cramped
+- **Best UX practices** - Users can focus on filling out the form
+
+**What happens when I try to add a 4th field?**
+- The field won't be added to that row
+- Create a new row instead
+- Visual feedback shows when a row is full
+
+**Recommended layout:**
+- **1 field per row** - For important fields, long labels, or text areas
+- **2 fields per row** - For related fields (first name / last name)
+- **3 fields per row** - For short fields (city / state / zip)
+
+</Accordion>
+
+<Accordion title="What happens to required fields?">
+
+Required fields are automatically detected from your HubSpot form and marked with a ⭐ badge in the palette.
+
+**Behavior:**
+- Required fields **must** be included in your layout
+- They appear in the palette with a green star icon
+- When deleted from canvas, they return to the palette
+- Validation ensures required fields are present before export
+
+**In the preview:**
+- Required fields show a red asterisk (*)
+- Users cannot submit without filling them out
+- Browser validation provides instant feedback
+
+<Note>
+You cannot change whether a field is required in the Form Builder. This must be configured in the original HubSpot form.
+</Note>
+
+</Accordion>
+
+<Accordion title="Can I add new fields not in the original form?">
+
+No, the Form Builder works with fields from your existing HubSpot forms. It's a **layout tool**, not a form field creator.
+
+**To add new fields:**
+1. Go to your form in HubSpot
+2. Add the new field there
+3. Refresh the Form Builder
+4. Re-select your form
+5. New field will appear in the palette
+
+**Why this approach?**
+- Maintains data integrity with HubSpot
+- Ensures proper field configuration
+- Keeps field properties (validation, options) in sync
+- Submissions go to the correct HubSpot form
+
+</Accordion>
+
+---
+
+## Module Generation & Export
+
+<Accordion title="How do I install the exported module in HubSpot?">
+
+After generating and downloading your module ZIP:
+
+**Step 1: Upload to Design Manager**
+1. Log into your HubSpot account
+2. Go to **Marketing → Files and Templates → Design Tools**
+3. In the left sidebar, click the folder icon
+4. Create a new folder or select existing one
+5. Click **Upload** → Select your ZIP file
+6. HubSpot will extract the module automatically
+
+**Step 2: Use in pages**
+1. Edit a page in **Marketing → Website → Website Pages**
+2. Click **Add** → **Module**
+3. Find your module in "Custom modules"
+4. Drag it into your page template
+5. Publish the page
+
+<Note>
+You need a **CMS Hub** subscription to upload and use custom modules in HubSpot.
+</Note>
+
+</Accordion>
+
+<Accordion title="Can I customize the exported module code?">
+
+Yes! The exported module is a standard HubSpot module with:
+
+**Files included:**
+- `module.html` - Template markup
+- `module.css` - Styles
+- `module.js` - Multi-step functionality
+- `meta.json` - Module metadata
+
+**What you can customize:**
+- CSS styles and colors
+- JavaScript behavior
+- HTML structure
+- Add custom validation
+- Integrate with tracking tools
+- Add progressive disclosure logic
+
+**How to customize:**
+1. Download the ZIP
+2. Extract files
+3. Edit files with your code editor
+4. Re-zip the modified files
+5. Upload to HubSpot
+
+<Tip>
+Keep your customizations documented so you can reapply them if you regenerate the module.
+</Tip>
+
+</Accordion>
+
+<Accordion title="Can I generate multiple versions of the same form?">
+
+Yes! You can:
+
+- Create different layouts for the same form
+- Export each layout as a separate module
+- Use different layouts on different pages
+- A/B test different multi-step configurations
+
+**Workflow:**
+1. Build layout version 1 → Export as "Form-V1.zip"
+2. Modify layout (change steps, reorder)
+3. Export as "Form-V2.zip"
+4. Upload both to HubSpot
+5. Use different versions on different pages
+
+**Use cases:**
+- Short form for landing pages, long form for detail pages
+- Different step arrangements for A/B testing
+- Desktop-optimized vs mobile-optimized layouts
+
+</Accordion>
+
+---
+
+## Usage & Production
+
+<Accordion title="Can I use this in production?">
+
+Yes! HubSpot Form Builder is production-ready:
+
+**Status:** ![Production Ready](https://img.shields.io/badge/status-production%20ready-success)
+
+**What this means:**
+- Code is stable and tested
+- Generated modules work reliably in HubSpot
+- OAuth authentication is secure
+- No known critical bugs
+
+**Production deployment tips:**
+- Test modules thoroughly before going live
+- Keep backups of exported modules
+- Monitor form submission rates
+- Use version control for your setup
+
+<Warning>
+While the tool is production-ready, always test exported modules in a HubSpot sandbox or test page before deploying to live pages.
+</Warning>
+
+</Accordion>
+
+<Accordion title="How do I update the Form Builder to the latest version?">
+
+To update your local installation:
+
+**From Git (if you cloned the repo):**
+```bash
+cd "HubSpot Form builder"
+git pull origin main
+npm install
+cd main/server && npm install
+cd ../frontend && npm install
+```
+
+**From download:**
+1. Download the latest release from GitHub
+2. Back up your `.env` files
+3. Extract new version over old files
+4. Restore your `.env` files
+5. Run `npm install` in all packages
+
+**Check for updates:**
+- Watch the GitHub repository for releases
+- Check the CHANGELOG for new features
+- Review migration notes for breaking changes
+
+<Tip>
+Subscribe to repository notifications on GitHub to get alerts about new releases.
+</Tip>
+
+</Accordion>
+
+<Accordion title="What browsers are supported?">
+
+**Fully supported:**
+- **Chrome** 90+ (recommended)
+- **Firefox** 88+
+- **Safari** 14+
+- **Edge** 90+
+
+**Features by browser:**
+- ✅ Drag and drop - All browsers
+- ✅ OAuth flow - All browsers  
+- ✅ ZIP download - All browsers
+- ✅ Real-time preview - All browsers
+
+**Mobile browsers:**
+- Touch-based drag and drop supported
+- Works on tablets (iPad, Android tablets)
+- Phone screens not recommended (too small for editing)
+
+**Not supported:**
+- Internet Explorer (any version)
+- Chrome < 90
+- Safari < 14
+
+<Note>
+For the best experience, use the latest version of Chrome or Firefox.
+</Note>
+
+</Accordion>
+
+<Accordion title="Does this work with HubSpot CMS themes?">
+
+Yes! The exported modules are standard HubSpot modules that work with:
+
+- **Any HubSpot theme** (built with themes framework)
+- **Custom templates** (coded templates)
+- **Drag and drop pages** (in Page Editor)
+- **Blog templates**
+- **Landing pages**
+
+**Integration:**
+1. Upload module to Design Manager
+2. Add module to any template or page
+3. Module inherits theme styles
+4. Customize CSS as needed
+
+The modules use HubL (HubSpot Markup Language) and are fully compatible with the HubSpot CMS ecosystem.
+
+</Accordion>
+
+---
+
+## Data & Privacy
+
+<Accordion title="Where is my HubSpot data stored?">
+
+**Backend (during session):**
+- Access tokens stored **in memory only** on the Node.js server
+- Tokens are **never** written to disk
+- Tokens cleared when server restarts
+
+**Frontend:**
+- No HubSpot credentials stored in browser
+- Form schemas cached temporarily in memory
+- No persistent storage of sensitive data
+
+**What's NOT stored:**
+- Your HubSpot password
+- Contact data or form submissions
+- Personal information
+
+**OAuth security:**
+- Standard OAuth 2.0 flow
+- State parameter prevents CSRF
+- Tokens expire and can be revoked
+
+<Tip>
+For enhanced security, logout after each session. This clears all tokens from server memory.
+</Tip>
+
+</Accordion>
+
+<Accordion title="Can I deploy this on my own server?">
+
+Absolutely! As an open-source project, you can deploy it anywhere:
+
+**Deployment options:**
+- **Cloud platforms:** AWS, Google Cloud, Azure
+- **PaaS providers:** Heroku, Render, Railway
+- **VPS:** DigitalOcean, Linode, Vultr
+- **On-premises:** Your company servers
+
+**Requirements for deployment:**
+1. Node.js 18+ runtime
+2. Update environment variables for your domain
+3. Configure HubSpot app with your production URLs
+4. Set up HTTPS (required for OAuth)
+5. Configure CORS for your domain
+
+**Environment updates needed:**
+```env
+HUBSPOT_REDIRECT_URI=https://your-domain.com/oauth/hubspot/callback
+FRONTEND_URL=https://your-domain.com/
+```
+
+</Accordion>
+
+---
+
+## Future Features
+
+<Accordion title="What features are planned for the future?">
+
+From the project roadmap:
+
+**High priority:**
+- [ ] **Automatic module installation** via HubSpot CLI
+- [ ] **Conditional field logic** (show/hide based on answers)
+- [ ] **Visual style editor** (colors, fonts, spacing)
+
+**Medium priority:**
+- [ ] **Pre-designed templates** for common form types
+- [ ] **Multi-language support** (i18n)
+- [ ] **HubSpot Workflows integration** (trigger workflows on submission)
+
+**Under consideration:**
+- [ ] Form analytics dashboard
+- [ ] Advanced field validation rules
+- [ ] Custom CSS injection
+- [ ] Team collaboration features
+
+<Note>
+Feature priorities may change based on community feedback. Contribute ideas via GitHub Issues!
+</Note>
+
+</Accordion>
+
+<Accordion title="How can I request a new feature?">
+
+We welcome feature requests!
+
+**How to request:**
+1. Check [existing issues](https://github.com) to avoid duplicates
+2. Create a new issue with label "enhancement"
+3. Describe:
+   - The feature you want
+   - Your use case
+   - How it would help you
+   - Any examples from other tools
+
+**What happens next:**
+- Team reviews the request
+- Community votes with 👍 reactions
+- Popular requests prioritized
+- May be added to roadmap
+
+**Want to contribute?**
+If you can code, consider implementing the feature yourself and submitting a Pull Request. Check the [GitHub repository](https://github.com/davidmenlop/HubSpot-Form-builder) for contribution guidelines.
+
+</Accordion>
+
+---
+
+## Still Have Questions?
+
+<Card title="Need More Help?" icon="life-ring">
+
+If your question isn't answered here:
+
+1. **Check the documentation:**
+   - [Troubleshooting Guide](/troubleshooting)
+   - [Quick Start](/quickstart)
+   - [Development Guide](/development)
+
+2. **Search GitHub Issues:**
+   - Someone may have asked the same question
+   - Check closed issues too
+
+3. **Ask the community:**
+   - Open a new GitHub issue
+   - Tag it with "question"
+   - Provide context and details
+
+4. **Contribute:**
+   - Help answer others' questions
+   - Improve documentation
+   - Submit pull requests
+
+</Card>
+
+<Tip>
+**Pro tip:** Keep your `.env` files backed up but never commit them to version control. Use `.env.example` as a reference template.
+</Tip>
