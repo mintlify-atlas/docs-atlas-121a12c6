@@ -1,0 +1,274 @@
+---
+title: Quickstart Guide
+description: Get HubSpot Form Builder running in minutes with this step-by-step guide
+---
+
+Get your development environment set up and build your first multi-step form in under 10 minutes.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- **Node.js 18+** and **npm 9+** installed ([check requirements](/requirements))
+- A **HubSpot account** with access to Forms API
+- **Git** installed on your machine
+
+## Installation
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the HubSpot Form Builder repository to your local machine:
+
+    ```bash
+    git clone https://github.com/davidmenlop/HubSpot-Form-builder.git
+    cd "HubSpot Form builder"
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    The project uses npm workspaces. Install all dependencies from the root:
+
+    <CodeGroup>
+    ```bash npm
+    cd main
+    npm install
+    ```
+
+    ```bash Individual packages
+    # Install backend
+    cd main/server
+    npm install
+
+    # Install frontend
+    cd main/frontend
+    npm install
+    ```
+    </CodeGroup>
+
+    This installs dependencies for the frontend (React + TypeScript), backend (Express), and shared types package.
+  </Step>
+
+  <Step title="Create HubSpot OAuth App">
+    You need to create a HubSpot OAuth application to enable authentication.
+
+    1. Go to your HubSpot account
+    2. Navigate to **Settings → Integrations → Private Apps**
+    3. Click **Create app**
+    4. Give it a name (e.g., "Form Builder Dev")
+    5. Under **Scopes**, select:
+       - `forms` (required)
+       - `content` (required)
+       - `forms-uploaded-files` (required)
+    6. Under **Redirect URLs**, add:
+       ```
+       http://localhost:3001/oauth/hubspot/callback
+       ```
+    7. Click **Create app** and copy your **Client ID** and **Client Secret**
+
+    <Note>
+      Keep your Client Secret secure. Never commit it to version control.
+    </Note>
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Create environment files for both the backend and frontend.
+
+    **Backend** - Create `main/server/.env`:
+
+    ```bash
+    PORT=3001
+    HUBSPOT_CLIENT_ID=your-client-id-here
+    HUBSPOT_CLIENT_SECRET=your-client-secret-here
+    HUBSPOT_REDIRECT_URI=http://localhost:3001/oauth/hubspot/callback
+    FRONTEND_URL=http://localhost:5173/
+    HUBSPOT_SCOPES=forms content forms-uploaded-files
+    ```
+
+    **Frontend** - Create `main/frontend/.env`:
+
+    ```bash
+    VITE_API_BASE=http://localhost:3001
+    ```
+
+    <Tip>
+      Replace `your-client-id-here` and `your-client-secret-here` with the actual values from your HubSpot OAuth app.
+    </Tip>
+  </Step>
+
+  <Step title="Start the Development Servers">
+    You need to run both the backend and frontend servers. Open two terminal windows:
+
+    **Terminal 1 - Backend Server:**
+    ```bash
+    cd main/server
+    npm run dev
+    ```
+
+    You should see:
+    ```
+    Server listening on 0.0.0.0:3001
+    ```
+
+    **Terminal 2 - Frontend Server:**
+    ```bash
+    cd main/frontend
+    npm run dev
+    ```
+
+    You should see:
+    ```
+    VITE v5.x.x  ready in xxx ms
+
+    ➜  Local:   http://localhost:5173/
+    ➜  Network: use --host to expose
+    ```
+  </Step>
+
+  <Step title="Open the Application">
+    Open your browser and navigate to:
+
+    ```
+    http://localhost:5173
+    ```
+
+    You should see the HubSpot Form Builder interface with a **"Connect to HubSpot"** button.
+  </Step>
+</Steps>
+
+## Build Your First Form
+
+Now that the application is running, let's create your first multi-step form.
+
+<Steps>
+  <Step title="Connect to HubSpot">
+    1. Click the **"Connect to HubSpot"** button in the sidebar
+    2. You'll be redirected to HubSpot's OAuth authorization page
+    3. Review the requested permissions and click **"Connect app"**
+    4. You'll be redirected back to the Form Builder
+
+    <Note>
+      The connection status indicator in the sidebar will turn green once connected.
+    </Note>
+  </Step>
+
+  <Step title="Select a Form">
+    1. In the sidebar, you'll see a **"Select form"** dropdown
+    2. Click it to see all available forms from your HubSpot account
+    3. Select any form to load its fields
+
+    The field palette will automatically populate with all fields from the selected form.
+  </Step>
+
+  <Step title="Design Your Layout">
+    **Drag fields from the palette to the canvas:**
+
+    1. Drag a field from the **"Campos detectados"** section in the sidebar
+    2. Drop it on the canvas in one of the drop zones:
+       - **Top** of a step (creates new row above)
+       - **Center** of an existing row (adds to that row, max 3 fields)
+       - **Bottom** of a step (creates new row below)
+    3. Repeat to add more fields
+
+    **Organize into steps:**
+
+    1. Click **"Agregar Paso"** to create additional steps
+    2. Drag fields to different steps to organize your multi-step flow
+    3. Rename steps by editing the title at the top of each step card
+
+    <Tip>
+      Each row can contain up to 3 fields. Fields automatically stack vertically on mobile devices.
+    </Tip>
+  </Step>
+
+  <Step title="Preview Your Form">
+    1. Click the **"Preview"** tab in the top navigation
+    2. Interact with your form:
+       - Navigate between steps using **Next** and **Back** buttons
+       - Test required field validation
+       - Try submitting the form
+    3. Switch back to **"Edit Layout"** to make changes
+
+    <Info>
+      The preview uses Shadow DOM to isolate styles, so it renders exactly as it will in HubSpot.
+    </Info>
+  </Step>
+
+  <Step title="Generate and Download Module">
+    Once you're satisfied with your form:
+
+    1. Click **"Generar Módulo"** in the canvas header
+    2. Wait a moment while the module is generated (usually less than 1 second)
+    3. Click **"Descargar Módulo"** to download the ZIP file
+    4. The ZIP contains all files needed for HubSpot CMS:
+       - `fields.json` - Module configuration
+       - `module.html` - HubL template
+       - `module.css` - Styles
+       - `module.js` - Multi-step navigation logic
+       - `meta.json` - Module metadata
+
+    <Tip>
+      The downloaded file is named after your form (e.g., `contact-form.zip`).
+    </Tip>
+  </Step>
+
+  <Step title="Upload to HubSpot">
+    1. Log in to your HubSpot account
+    2. Go to **Marketing → Files and Templates → Design Tools**
+    3. Navigate to your theme's modules folder
+    4. Click **Upload** and select the downloaded ZIP file
+    5. HubSpot will automatically extract and install the module
+
+    Your form is now ready to use in HubSpot pages!
+
+    <Note>
+      For detailed upload instructions, see the [Exporting Modules guide](/guides/exporting-modules).
+    </Note>
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### "localhost refused to connect"
+
+**Solution**: Make sure both servers (backend and frontend) are running. Check that you see output in both terminal windows.
+
+### "Not allowed by CORS"
+
+**Solution**: Verify that `FRONTEND_URL` in `main/server/.env` matches the frontend URL (including trailing slash):
+```
+FRONTEND_URL=http://localhost:5173/
+```
+
+### "Invalid state or code" during OAuth
+
+**Solution**: Ensure `HUBSPOT_REDIRECT_URI` in your `.env` file matches exactly what you configured in your HubSpot OAuth app:
+```
+HUBSPOT_REDIRECT_URI=http://localhost:3001/oauth/hubspot/callback
+```
+
+### Forms dropdown is empty
+
+**Solution**: 
+1. Check that you successfully connected to HubSpot (green status indicator)
+2. Verify your HubSpot account has forms created
+3. Check the browser console for errors
+4. Ensure the `forms` scope is included in your OAuth app
+
+For more troubleshooting help, see the [Troubleshooting page](/troubleshooting).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Explore Features" icon="sparkles" href="/features/visual-editor">
+    Learn about the visual editor, field palette, and preview features
+  </Card>
+  <Card title="Building Forms Guide" icon="wand-magic-sparkles" href="/guides/building-forms">
+    Deep dive into form building workflows and best practices
+  </Card>
+  <Card title="HubSpot Integration" icon="plug" href="/integration/oauth-setup">
+    Understand OAuth setup and API integration
+  </Card>
+  <Card title="Deploy to Production" icon="rocket" href="/guides/deployment">
+    Learn how to deploy the form builder for production use
+  </Card>
+</CardGroup>
